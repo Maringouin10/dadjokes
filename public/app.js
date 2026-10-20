@@ -12,7 +12,7 @@
 
   function formatDate(isoDay) {
     const [y, m, d] = isoDay.split('-').map(Number);
-    return new Intl.DateTimeFormat(undefined, {
+    return new Intl.DateTimeFormat('fr-FR', {
       weekday: 'long', month: 'long', day: 'numeric', timeZone: 'UTC',
     }).format(new Date(Date.UTC(y, m - 1, d)));
   }
@@ -23,11 +23,11 @@
     const m = Math.floor((total % 3600) / 60);
     if (h > 0) return `${h} h ${String(m).padStart(2, '0')} min`;
     if (m > 0) return `${m} min`;
-    return 'less than a minute';
+    return 'moins d’une minute';
   }
 
   function renderSource(data) {
-    els.source.textContent = 'Joke source: ';
+    els.source.textContent = 'Source : ';
     if (data.sourceUrl) {
       const a = document.createElement('a');
       a.href = data.sourceUrl;
@@ -38,7 +38,7 @@
     } else {
       els.source.append(data.source);
     }
-    els.source.append(' · Changes at midnight New York time');
+    els.source.append(' · Nouvelle blague à minuit, heure de New York');
   }
 
   function render(data) {
@@ -52,7 +52,7 @@
   }
 
   function updateCountdown(at) {
-    els.next.textContent = `Next joke in ${formatCountdown(at - Date.now())}`;
+    els.next.textContent = `Prochaine blague dans ${formatCountdown(at - Date.now())}`;
   }
 
   function scheduleRefresh(at) {
@@ -72,7 +72,7 @@
     } catch (err) {
       if (!current) {
         els.card.setAttribute('aria-busy', 'false');
-        els.joke.innerHTML = '<span class="placeholder">Couldn’t load today’s joke. Check your connection.</span>';
+        els.joke.innerHTML = '<span class="placeholder">Impossible de charger la blague du jour. Vérifie ta connexion.</span>';
       }
       clearTimeout(refreshTimer);
       refreshTimer = setTimeout(load, 60 * 1000);
@@ -81,14 +81,14 @@
 
   els.share.addEventListener('click', async () => {
     if (!current) return;
-    const text = `${current.joke}\n\n— Dad Joke of the Day`;
+    const text = `${current.joke}\n\n— La blague plate du jour`;
     try {
       if (navigator.share) {
-        await navigator.share({ title: 'Dad Joke of the Day', text, url: location.origin });
+        await navigator.share({ title: 'La blague plate du jour', text, url: location.origin });
       } else {
         await navigator.clipboard.writeText(`${text}\n${location.origin}`);
-        els.share.textContent = 'Copied';
-        setTimeout(() => { els.share.textContent = 'Share'; }, 1600);
+        els.share.textContent = 'Copié';
+        setTimeout(() => { els.share.textContent = 'Partager'; }, 1600);
       }
     } catch { /* user cancelled */ }
   });

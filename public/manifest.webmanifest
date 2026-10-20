@@ -1,8 +1,9 @@
 {
-  "name": "Dad Joke of the Day",
-  "short_name": "Dad Jokes",
-  "description": "One new dad joke every day, at midnight New York time.",
+  "name": "La blague plate du jour",
+  "short_name": "Blague du jour",
+  "description": "Une nouvelle blague plate chaque jour, à minuit heure de New York.",
   "id": "/",
+  "lang": "fr",
   "start_url": "/",
   "scope": "/",
   "display": "standalone",

@@ -94,23 +94,47 @@ async function fetchJson(url, headers = {}) {
   return res.json();
 }
 
+// Optional: free token from https://www.blagues-api.fr (best French source).
+const BLAGUES_API_TOKEN = process.env.BLAGUES_API_TOKEN || '';
+
+// JokeAPI's French jokes are not all well flagged: skip crude or mean ones.
+const BLOCKED_WORDS = [
+  'niquer?', 'nique', 'phoqu\\p{L}*', 'putes?', 'putain', 'merde', 'cul', 'bites?', 'sexe\\p{L}*', 'nue?s?',
+  'pisser', 'chier', 'viol\\p{L}*', 'nazis?', 'hitler', 'juifs?', 'arabes?', 'noirs?', 'nègres?', 'negres?',
+  'somali\\p{L}*', 'africains?', 'chinois', 'gays?', 'pd', 'tapettes?', 'handicap\\p{L}*', 'nains?',
+  'morts?', 'tuer', 'tué', 'suicid\\p{L}*', 'drogu\\p{L}*', 'alcool\\p{L}*', 'bourrée?s?', 'blondes?', 'seins?',
+];
+const BLOCKLIST = new RegExp(`(?<!\\p{L})(${BLOCKED_WORDS.join('|')})(?!\\p{L})`, 'iu');
+
+function acceptable(text) {
+  return text && text.length <= 400 && !BLOCKLIST.test(text.normalize('NFC'));
+}
+
 const SOURCES = [
-  async function icanhazdadjoke() {
-    const data = await fetchJson('https://icanhazdadjoke.com/');
+  async function blaguesApi() {
+    if (!BLAGUES_API_TOKEN) throw new Error('no BLAGUES_API_TOKEN');
+    const data = await fetchJson(
+      'https://www.blagues-api.fr/api/random?disallow=dark&disallow=limit&disallow=beauf&disallow=blondes',
+      { Authorization: `Bearer ${BLAGUES_API_TOKEN}` },
+    );
     return {
-      id: `icanhazdadjoke:${data.id}`,
-      text: data.joke,
-      source: 'icanhazdadjoke.com',
-      sourceUrl: `https://icanhazdadjoke.com/j/${data.id}`,
+      id: `blagues-api:${data.id}`,
+      text: `${data.joke}\n${data.answer}`,
+      source: 'Blagues API',
+      sourceUrl: 'https://www.blagues-api.fr',
     };
   },
-  async function officialJokeApi() {
-    const [data] = await fetchJson('https://official-joke-api.appspot.com/jokes/general/random');
+  async function jokeApi() {
+    const data = await fetchJson(
+      'https://v2.jokeapi.dev/joke/Pun,Misc?lang=fr&safe-mode'
+      + '&blacklistFlags=nsfw,religious,political,racist,sexist,explicit',
+    );
+    if (data.error) throw new Error(data.message || 'JokeAPI error');
     return {
-      id: `official-joke-api:${data.id}`,
-      text: `${data.setup}\n${data.punchline}`,
-      source: 'Official Joke API',
-      sourceUrl: 'https://github.com/15Dkatz/official_joke_api',
+      id: `jokeapi-fr:${data.id}`,
+      text: data.type === 'twopart' ? `${data.setup}\n${data.delivery}` : data.joke,
+      source: 'JokeAPI',
+      sourceUrl: 'https://jokeapi.dev',
     };
   },
 ];
@@ -118,10 +142,10 @@ const SOURCES = [
 async function pickNewJoke(dayKey) {
   const seen = seenIds();
   for (const source of SOURCES) {
-    for (let attempt = 0; attempt < 5; attempt++) {
+    for (let attempt = 0; attempt < 10; attempt++) {
       try {
         const joke = await source();
-        if (joke.text && !seen.has(joke.id)) return joke;
+        if (acceptable(joke.text) && !seen.has(joke.id)) return { ...joke, lang: 'fr' };
       } catch (err) {
         console.warn(`[joke] ${source.name} failed: ${err.message}`);
         break;
@@ -133,8 +157,9 @@ async function pickNewJoke(dayKey) {
   return {
     id: `fallback:${index}`,
     text: FALLBACK_JOKES[index],
-    source: 'Local collection (APIs unavailable)',
+    source: 'Collection locale (API indisponibles)',
     sourceUrl: null,
+    lang: 'fr',
     fallback: true,
   };
 }
@@ -145,7 +170,8 @@ async function getTodayJoke() {
   const dayKey = nyDateKey();
   const existing = store.days[dayKey];
   // A fallback joke is retried (at most every 10 min) in case the APIs are back.
-  const fresh = existing && (!existing.fallback || Date.now() - Date.parse(existing.fetchedAt) < 10 * 60e3);
+  // Jokes stored before the switch to French (no lang) are replaced.
+  const fresh = existing && existing.lang === 'fr' && (!existing.fallback || Date.now() - Date.parse(existing.fetchedAt) < 10 * 60e3);
   if (fresh) return { dayKey, joke: existing };
   if (!pending) {
     pending = (async () => {
