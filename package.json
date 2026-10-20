@@ -1,0 +1,14 @@
+{
+  "name": "dadjokes",
+  "version": "1.0.0",
+  "description": "One new dad joke every day, at midnight New York time.",
+  "private": true,
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "license": "MIT"
+}

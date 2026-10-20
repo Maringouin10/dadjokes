@@ -1,0 +1,12 @@
+services:
+  dadjokes:
+    build: .
+    container_name: dadjokes
+    ports:
+      - "8002:8002"
+    volumes:
+      - dadjokes-data:/data
+    restart: unless-stopped
+
+volumes:
+  dadjokes-data:
