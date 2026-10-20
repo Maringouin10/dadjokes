@@ -29,9 +29,25 @@
       <p class="joke" id="joke"><span class="placeholder">Chargement de la blague du jour…</span></p>
     </article>
 
+    <div class="flip" id="flip" role="button" tabindex="0" aria-pressed="false" hidden
+         aria-label="Retourner la carte pour voir la réponse">
+      <div class="flip-inner" id="flip-inner">
+        <div class="face front card" id="front">
+          <p class="joke" id="setup"></p>
+          <p class="hint" aria-hidden="true">Glisse pour la réponse <span class="chevron">›</span></p>
+        </div>
+        <div class="face back card" id="back" aria-hidden="true">
+          <p class="joke" id="punchline"></p>
+          <p class="hint" aria-hidden="true"><span class="chevron">‹</span> Glisse pour revenir</p>
+        </div>
+      </div>
+    </div>
+
     <div class="actions">
       <button class="button" id="share" type="button" hidden>Partager</button>
     </div>
+
+    <p class="toast" id="toast" role="status" aria-live="polite"></p>
 
     <p class="next" id="next"></p>
   </main>

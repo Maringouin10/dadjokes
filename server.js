@@ -208,10 +208,15 @@ async function handleApi(req, res) {
   const { dayKey, joke } = await getTodayJoke();
   const nextChange = nextNyMidnight();
   const maxAge = Math.max(0, Math.floor((nextChange - Date.now()) / 1000));
+  // Two-part jokes are stored as "setup\npunchline".
+  const [setup, ...rest] = joke.text.split('\n');
+  const punchline = rest.join('\n').trim() || null;
   send(res, 200, JSON.stringify({
     date: dayKey,
     timeZone: TIME_ZONE,
     joke: joke.text,
+    setup: punchline ? setup : null,
+    punchline,
     source: joke.source,
     sourceUrl: joke.sourceUrl,
     nextChangeAt: nextChange.toISOString(),

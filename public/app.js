@@ -4,7 +4,9 @@
   const $ = (id) => document.getElementById(id);
   const els = {
     card: $('card'), joke: $('joke'), date: $('date'),
-    next: $('next'), source: $('source'), share: $('share'),
+    next: $('next'), source: $('source'), share: $('share'), toast: $('toast'),
+    flip: $('flip'), flipInner: $('flip-inner'), setup: $('setup'), punchline: $('punchline'),
+    front: $('front'), back: $('back'),
   };
   let current = null;
   let refreshTimer = null;
@@ -44,7 +46,17 @@
   function render(data) {
     current = data;
     els.card.setAttribute('aria-busy', 'false');
-    els.joke.textContent = data.joke;
+    if (data.punchline) {
+      els.setup.textContent = data.setup;
+      els.punchline.textContent = data.punchline;
+      els.card.hidden = true;
+      els.flip.hidden = false;
+      resetCard();
+    } else {
+      els.joke.textContent = data.joke;
+      els.card.hidden = false;
+      els.flip.hidden = true;
+    }
     els.date.textContent = formatDate(data.date);
     renderSource(data);
     els.share.hidden = false;
@@ -79,18 +91,130 @@
     }
   }
 
+  // ---------- Flip card: swipe, tap or keyboard ----------
+
+  // Continuous angle: each flip adds or removes 180°, so the card always turns the way it was pushed.
+  let angle = 0;
+  let flipped = false;
+  let lastSwipe = 0;
+
+  function applyAngle() {
+    flipped = Math.abs(angle / 180) % 2 === 1;
+    els.flipInner.style.transform = `rotateY(${angle}deg)`;
+    els.flip.setAttribute('aria-pressed', String(flipped));
+    els.flip.setAttribute('aria-label', flipped
+      ? 'Réponse affichée. Retourner la carte pour revoir la question'
+      : 'Retourner la carte pour voir la réponse');
+    els.front.setAttribute('aria-hidden', String(flipped));
+    els.back.setAttribute('aria-hidden', String(!flipped));
+  }
+
+  function turn(direction) {
+    angle += direction < 0 ? -180 : 180;
+    applyAngle();
+  }
+
+  function resetCard() {
+    angle = 0;
+    applyAngle();
+  }
+
+  let drag = null;
+
+  els.flip.addEventListener('pointerdown', (e) => {
+    if (e.button !== 0) return;
+    drag = { id: e.pointerId, x: e.clientX, y: e.clientY, t: e.timeStamp, dx: 0, active: false };
+  });
+
+  els.flip.addEventListener('pointermove', (e) => {
+    if (!drag || e.pointerId !== drag.id) return;
+    const dx = e.clientX - drag.x;
+    const dy = e.clientY - drag.y;
+    if (!drag.active) {
+      if (Math.abs(dx) < 8 || Math.abs(dx) < Math.abs(dy)) return;
+      drag.active = true;
+      els.flip.setPointerCapture(e.pointerId);
+      els.flip.classList.add('is-dragging');
+    }
+    drag.dx = dx;
+    const live = angle + Math.max(-180, Math.min(180, dx * 0.6));
+    els.flipInner.style.transform = `rotateY(${live}deg)`;
+  });
+
+  function endDrag(e) {
+    if (!drag || e.pointerId !== drag.id) return;
+    const { active, dx, t } = drag;
+    drag = null;
+    els.flip.classList.remove('is-dragging');
+    if (!active) return; // a plain tap is handled by the click event
+    lastSwipe = Date.now();
+    const speed = Math.abs(dx) / Math.max(1, e.timeStamp - t);
+    if (Math.abs(dx) > 70 || (Math.abs(dx) > 30 && speed > 0.5)) turn(dx);
+    else applyAngle(); // not far enough: snap back
+  }
+
+  els.flip.addEventListener('pointerup', endDrag);
+  els.flip.addEventListener('pointercancel', endDrag);
+
+  els.flip.addEventListener('click', () => {
+    if (Date.now() - lastSwipe < 400) return; // the click that ends a swipe
+    turn(1);
+  });
+
+  els.flip.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); turn(1); }
+    else if (e.key === 'ArrowRight' || e.key === 'ArrowLeft') {
+      e.preventDefault();
+      turn(e.key === 'ArrowLeft' ? -1 : 1);
+    }
+  });
+
+  // ---------- Share ----------
+
+  let toastTimer = null;
+  function toast(message) {
+    els.toast.textContent = message;
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => { els.toast.textContent = ''; }, 2500);
+  }
+
+  // navigator.clipboard only exists on HTTPS/localhost; this works on plain HTTP too.
+  function legacyCopy(text) {
+    const area = document.createElement('textarea');
+    area.value = text;
+    area.setAttribute('readonly', '');
+    area.style.cssText = 'position:fixed;top:0;left:0;opacity:0;';
+    document.body.append(area);
+    area.select();
+    area.setSelectionRange(0, text.length);
+    let ok = false;
+    try { ok = document.execCommand('copy'); } catch { ok = false; }
+    area.remove();
+    return ok;
+  }
+
+  async function copy(text) {
+    if (navigator.clipboard && window.isSecureContext) {
+      try { await navigator.clipboard.writeText(text); return true; } catch { /* fall through */ }
+    }
+    return legacyCopy(text);
+  }
+
   els.share.addEventListener('click', async () => {
     if (!current) return;
-    const text = `${current.joke}\n\n— La blague plate du jour`;
-    try {
-      if (navigator.share) {
+    const body = current.punchline ? `${current.setup}\n… ${current.punchline}` : current.joke;
+    const text = `${body}\n\n— La blague plate du jour`;
+    if (navigator.share) {
+      try {
         await navigator.share({ title: 'La blague plate du jour', text, url: location.origin });
-      } else {
-        await navigator.clipboard.writeText(`${text}\n${location.origin}`);
-        els.share.textContent = 'Copié';
-        setTimeout(() => { els.share.textContent = 'Partager'; }, 1600);
+        return;
+      } catch (err) {
+        if (err && err.name === 'AbortError') return; // user closed the share sheet
       }
-    } catch { /* user cancelled */ }
+    }
+    toast(await copy(`${text}\n${location.origin}`)
+      ? 'Blague copiée dans le presse-papier'
+      : 'Impossible de copier la blague');
   });
 
   // Coming back to the app after a while: make sure the joke is still today's.

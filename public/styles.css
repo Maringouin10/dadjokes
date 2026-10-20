@@ -27,6 +27,8 @@
 
 *, *::before, *::after { box-sizing: border-box; }
 
+[hidden] { display: none !important; }
+
 html {
   -webkit-text-size-adjust: 100%;
   text-size-adjust: 100%;
@@ -165,4 +167,63 @@ body {
 
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation: none !important; transition: none !important; }
+}
+
+/* ---------- Flip card (two-part jokes) ---------- */
+
+.flip {
+  perspective: 1400px;
+  touch-action: pan-y; /* vertical scroll stays native, horizontal swipe flips */
+  cursor: grab;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-tap-highlight-color: transparent;
+  border-radius: 20px;
+}
+
+.flip:active { cursor: grabbing; }
+.flip:focus-visible { outline: 3px solid color-mix(in srgb, var(--accent) 45%, transparent); outline-offset: 4px; }
+
+.flip-inner {
+  display: grid;
+  transform-style: preserve-3d;
+  transition: transform 0.55s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+.flip.is-dragging .flip-inner { transition: none; }
+
+.face {
+  grid-area: 1 / 1; /* both faces share the cell: the card takes the taller one's height */
+  flex-direction: column;
+  gap: 20px;
+  backface-visibility: hidden;
+  -webkit-backface-visibility: hidden;
+}
+
+.face .joke { animation: none; }
+
+.back { transform: rotateY(180deg); }
+.back .joke { color: var(--accent); }
+
+.hint {
+  margin: 0;
+  font-size: 0.8125rem;
+  font-weight: 500;
+  color: var(--tertiary);
+}
+
+.chevron { display: inline-block; font-size: 1.1em; }
+.front .chevron { animation: nudge 1.8s ease-in-out infinite; }
+
+@keyframes nudge {
+  0%, 60%, 100% { transform: none; }
+  30% { transform: translateX(4px); }
+}
+
+.toast {
+  margin: -8px 0 0;
+  min-height: 1.2em;
+  text-align: center;
+  font-size: 0.875rem;
+  color: var(--secondary);
 }
