@@ -207,7 +207,6 @@ function send(res, status, body, headers = {}) {
 async function handleApi(req, res) {
   const { dayKey, joke } = await getTodayJoke();
   const nextChange = nextNyMidnight();
-  const maxAge = Math.max(0, Math.floor((nextChange - Date.now()) / 1000));
   // Two-part jokes are stored as "setup\npunchline".
   const [setup, ...rest] = joke.text.split('\n');
   const punchline = rest.join('\n').trim() || null;
@@ -222,7 +221,7 @@ async function handleApi(req, res) {
     nextChangeAt: nextChange.toISOString(),
   }), {
     'Content-Type': MIME['.json'],
-    'Cache-Control': `public, max-age=${Math.min(maxAge, 300)}`,
+    'Cache-Control': 'no-store',
   });
 }
 
@@ -233,10 +232,9 @@ async function handleStatic(req, res, pathname) {
   try {
     const data = await fsp.readFile(filePath);
     const ext = path.extname(filePath);
-    const noCache = ext === '.html' || pathname === '/sw.js' || ext === '.webmanifest';
     send(res, 200, req.method === 'HEAD' ? undefined : data, {
       'Content-Type': MIME[ext] || 'application/octet-stream',
-      'Cache-Control': noCache ? 'no-cache' : 'public, max-age=86400',
+      'Cache-Control': 'no-store',
     });
   } catch {
     send(res, 404, 'Not found', { 'Content-Type': MIME['.txt'] });

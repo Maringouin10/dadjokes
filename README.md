@@ -12,7 +12,8 @@ for everyone. The source of the joke is shown in small print at the bottom of th
   plays one of 20 animations at random (`?anim=1`…`?anim=20` in the URL forces one, to try them).
 - Each day's joke is stored in `/data/jokes.json`, so it survives restarts and never repeats.
 - Sober, Apple-style design (system font, light/dark mode, 44 pt touch targets, safe areas,
-  reduced motion), responsive, and installable as a PWA (manifest, service worker, offline).
+  reduced motion), responsive, and installable as a PWA (manifest, service worker).
+- Nothing is cached (no-store headers, no service worker cache): you always get the latest version.
 
 ## Run
 

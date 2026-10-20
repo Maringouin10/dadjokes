@@ -244,6 +244,11 @@
         && Date.now() >= new Date(current.nextChangeAt).getTime()) load();
   });
 
+  // No caching anywhere: remove what older versions of the site stored.
+  if ('caches' in window) {
+    caches.keys().then((keys) => keys.forEach((k) => caches.delete(k))).catch(() => {});
+  }
+
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', () => navigator.serviceWorker.register('/sw.js').catch(() => {}));
   }
