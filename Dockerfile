@@ -5,7 +5,9 @@ ENV NODE_ENV=production \
     DATA_DIR=/data
 
 WORKDIR /app
-COPY package.json server.js fallback-jokes.json ./
+COPY package.json package-lock.json ./
+RUN npm ci --omit=dev && npm cache clean --force
+COPY server.js notifications.js fallback-jokes.json ./
 COPY public ./public
 
 RUN mkdir -p /data && chown node:node /data

@@ -9,6 +9,13 @@ services:
     environment:
       # Optionnel : clé gratuite sur https://www.blagues-api.fr (meilleure source FR)
       - BLAGUES_API_TOKEN=${BLAGUES_API_TOKEN:-}
+      # Adresse publique du site, en HTTPS (liens des e-mails ; nécessaire aux notifications push)
+      - PUBLIC_URL=${PUBLIC_URL:-}
+      # E-mails via Resend (https://resend.com) : clé API et expéditeur d'un domaine vérifié
+      - RESEND_API_KEY=${RESEND_API_KEY:-}
+      - EMAIL_FROM=${EMAIL_FROM:-}
+      # Contact pour les services de push, ex. mailto:toi@exemple.com
+      - VAPID_SUBJECT=${VAPID_SUBJECT:-}
     restart: unless-stopped
 
 volumes:

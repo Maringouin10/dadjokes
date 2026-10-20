@@ -45,6 +45,8 @@
 
     <div class="actions">
       <button class="button" id="share" type="button" hidden>Partager</button>
+      <button class="button secondary" id="push" type="button" aria-pressed="false" hidden>Notifications</button>
+      <button class="button secondary" id="email" type="button" hidden>E-mail</button>
     </div>
 
     <p class="toast" id="toast" role="status" aria-live="polite"></p>
@@ -55,6 +57,21 @@
   <footer class="footer">
     <p id="source">&nbsp;</p>
   </footer>
+
+  <dialog class="sheet" id="email-dialog" aria-labelledby="email-title">
+    <form class="sheet-form" id="email-form" novalidate>
+      <h2 class="sheet-title" id="email-title">La blague par e-mail</h2>
+      <p class="sheet-text">Reçois la blague plate du jour dans ta boîte mail : à midi en semaine, à minuit le week-end (heure de New York).</p>
+      <label class="visually-hidden" for="email-input">Adresse e-mail</label>
+      <input class="field" id="email-input" name="email" type="email" inputmode="email" autocomplete="email"
+             placeholder="toi@exemple.com" required maxlength="254">
+      <p class="sheet-status" id="email-status" role="status" aria-live="polite"></p>
+      <div class="sheet-actions">
+        <button class="button secondary" type="button" id="email-cancel">Annuler</button>
+        <button class="button" type="submit" id="email-submit">S’abonner</button>
+      </div>
+    </form>
+  </dialog>
 
   <script src="/flip-animations.js" defer></script>
   <script src="/app.js" defer></script>

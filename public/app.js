@@ -196,7 +196,7 @@
   function toast(message) {
     els.toast.textContent = message;
     clearTimeout(toastTimer);
-    toastTimer = setTimeout(() => { els.toast.textContent = ''; }, 2500);
+    toastTimer = setTimeout(() => { els.toast.textContent = ''; }, 2500 + message.length * 40);
   }
 
   // navigator.clipboard only exists on HTTPS/localhost; this works on plain HTTP too.
@@ -238,6 +238,140 @@
       : 'Impossible de copier la blague');
   });
 
+  // ---------- Push notifications ----------
+
+  const pushButton = $('push');
+  const isIos = /iP(hone|ad|od)/.test(navigator.platform)
+    || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+  const isStandalone = window.matchMedia('(display-mode: standalone)').matches || navigator.standalone === true;
+  const pushSupported = 'serviceWorker' in navigator && 'PushManager' in window && 'Notification' in window;
+  let config = null;
+
+  function urlBase64ToUint8Array(base64) {
+    const padded = (base64 + '='.repeat((4 - (base64.length % 4)) % 4)).replace(/-/g, '+').replace(/_/g, '/');
+    return Uint8Array.from(atob(padded), (c) => c.charCodeAt(0));
+  }
+
+  function setPushState(on) {
+    pushButton.setAttribute('aria-pressed', String(on));
+    pushButton.textContent = on ? 'Notifications ✓' : 'Notifications';
+  }
+
+  async function currentSubscription() {
+    const reg = await navigator.serviceWorker.ready;
+    return reg.pushManager.getSubscription();
+  }
+
+  async function postJson(url, body) {
+    const res = await fetch(url, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
+    return data;
+  }
+
+  async function togglePush() {
+    if (!window.isSecureContext) {
+      toast('Les notifications demandent une connexion sécurisée (HTTPS).');
+      return;
+    }
+    if (!pushSupported) {
+      toast(isIos && !isStandalone
+        ? 'Sur iPhone : Partager → « Sur l’écran d’accueil », puis ouvre l’appli pour activer les notifications.'
+        : 'Ce navigateur ne gère pas les notifications.');
+      return;
+    }
+    pushButton.disabled = true;
+    try {
+      const existing = await currentSubscription();
+      if (existing) {
+        await postJson('/api/push/unsubscribe', { endpoint: existing.endpoint }).catch(() => {});
+        await existing.unsubscribe();
+        setPushState(false);
+        toast('Notifications désactivées');
+        return;
+      }
+      const permission = await Notification.requestPermission();
+      if (permission !== 'granted') {
+        toast('Notifications refusées. Tu peux les autoriser dans les réglages du navigateur.');
+        return;
+      }
+      const reg = await navigator.serviceWorker.ready;
+      const sub = await reg.pushManager.subscribe({
+        userVisibleOnly: true,
+        applicationServerKey: urlBase64ToUint8Array(config.pushPublicKey),
+      });
+      await postJson('/api/push/subscribe', { subscription: sub.toJSON() });
+      setPushState(true);
+      toast('Notifications activées');
+    } catch (err) {
+      console.error(err);
+      toast(Notification.permission === 'denied'
+        ? 'Notifications bloquées. Autorise-les dans les réglages du navigateur.'
+        : 'Impossible d’activer les notifications pour le moment.');
+    } finally {
+      pushButton.disabled = false;
+    }
+  }
+
+  pushButton.addEventListener('click', togglePush);
+
+  // ---------- E-mail ----------
+
+  const emailButton = $('email');
+  const dialog = $('email-dialog');
+  const form = $('email-form');
+  const input = $('email-input');
+  const status = $('email-status');
+  const submit = $('email-submit');
+
+  function setStatus(text, error = false) {
+    status.textContent = text;
+    status.classList.toggle('error', error);
+  }
+
+  emailButton.addEventListener('click', () => {
+    setStatus('');
+    submit.hidden = false;
+    input.disabled = false;
+    $('email-cancel').textContent = 'Annuler';
+    dialog.showModal();
+  });
+  $('email-cancel').addEventListener('click', () => dialog.close());
+  dialog.addEventListener('click', (e) => { if (e.target === dialog) dialog.close(); }); // tap outside
+
+  form.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    if (!input.checkValidity()) { setStatus('Entre une adresse e-mail valide.', true); return; }
+    submit.disabled = true;
+    setStatus('Envoi…');
+    try {
+      await postJson('/api/email/subscribe', { email: input.value });
+      setStatus('C’est presque fini : clique sur le lien reçu par e-mail pour confirmer.');
+      submit.hidden = true;
+      input.disabled = true;
+      $('email-cancel').textContent = 'Fermer';
+    } catch (err) {
+      setStatus(err.message, true);
+    } finally {
+      submit.disabled = false;
+    }
+  });
+
+  async function setupSubscriptions() {
+    try {
+      const res = await fetch('/api/config', { cache: 'no-store' });
+      config = await res.json();
+    } catch { return; }
+    emailButton.hidden = !config.email;
+    // Shown where push works, or with an explanation where it could (HTTPS, iPhone home screen).
+    pushButton.hidden = !(pushSupported || (isIos && !isStandalone) || !window.isSecureContext);
+    if (pushSupported && window.isSecureContext) {
+      currentSubscription().then((sub) => setPushState(Boolean(sub))).catch(() => {});
+    }
+  }
+
   // Coming back to the app after a while: make sure the joke is still today's.
   document.addEventListener('visibilitychange', () => {
     if (document.visibilityState === 'visible' && current
@@ -254,4 +388,5 @@
   }
 
   load();
+  setupSubscriptions();
 })();

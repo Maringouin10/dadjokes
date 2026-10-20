@@ -4,6 +4,7 @@ const http = require('node:http');
 const fs = require('node:fs');
 const fsp = require('node:fs/promises');
 const path = require('node:path');
+const { createNotifier, escapeHtml } = require('./notifications');
 
 const PORT = Number(process.env.PORT) || 8002;
 const TIME_ZONE = 'America/New_York';
@@ -200,10 +201,21 @@ async function getTodayJoke() {
   return { dayKey, joke: store.days[dayKey] };
 }
 
+// Sends push notifications and e-mails once per joke period.
+async function notifyNewJoke() {
+  const { dayKey, joke } = await getTodayJoke();
+  if (store.notified === dayKey) return;
+  store.notified = dayKey;
+  await saveStore().catch((err) => console.error('[store] save failed:', err.message));
+  console.log(`[notify] ${dayKey}`);
+  await notifier.notifyAll(joke, dayKey);
+}
+
 function scheduleRefresh() {
+  // setTimeout caps at ~24.8 days; periods last 36 h at most.
   const delay = jokePeriod().next.getTime() - Date.now() + 1000;
   setTimeout(async () => {
-    await getTodayJoke().catch((err) => console.error(err));
+    await notifyNewJoke().catch((err) => console.error(err));
     scheduleRefresh();
   }, delay);
 }
@@ -240,6 +252,107 @@ async function handleApi(req, res) {
   });
 }
 
+// ---------- Subscriptions ----------
+
+function readJson(req, limit = 8 * 1024) {
+  return new Promise((resolve, reject) => {
+    let size = 0;
+    const chunks = [];
+    req.on('data', (chunk) => {
+      size += chunk.length;
+      if (size > limit) {
+        reject(Object.assign(new Error('Payload too large'), { status: 413 }));
+        chunks.length = 0; // keep draining so the 413 reaches the client
+        return;
+      }
+      chunks.push(chunk);
+    });
+    req.on('end', () => {
+      if (size > limit) return;
+      try { resolve(JSON.parse(Buffer.concat(chunks).toString('utf8') || '{}')); } catch {
+        reject(Object.assign(new Error('Invalid JSON'), { status: 400 }));
+      }
+    });
+    req.on('error', reject);
+  });
+}
+
+// Small in-memory limit on subscription endpoints: 10 requests per minute per IP.
+const hits = new Map();
+function rateLimited(req) {
+  const ip = req.headers['x-forwarded-for']?.split(',')[0].trim() || req.socket.remoteAddress;
+  const now = Date.now();
+  const recent = (hits.get(ip) || []).filter((t) => now - t < 60e3);
+  recent.push(now);
+  hits.set(ip, recent);
+  if (hits.size > 10000) hits.clear();
+  return recent.length > 10;
+}
+
+function sendJson(res, status, data) {
+  send(res, status, JSON.stringify(data), { 'Content-Type': MIME['.json'], 'Cache-Control': 'no-store' });
+}
+
+function sendPage(res, status, title, message) {
+  send(res, status, `<!doctype html><html lang="fr"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1"><title>${escapeHtml(title)}</title>
+<link rel="stylesheet" href="/styles.css"></head><body><main class="page message-page">
+<div class="card"><div><h1 class="title">${escapeHtml(title)}</h1><p class="message">${escapeHtml(message)}</p>
+<p><a class="button" href="/">Voir la blague du jour</a></p></div></div></main></body></html>`, {
+    'Content-Type': MIME['.html'], 'Cache-Control': 'no-store',
+  });
+}
+
+async function handleSubscriptions(req, res, pathname, searchParams) {
+  if (pathname === '/api/config' && req.method === 'GET') {
+    return sendJson(res, 200, { pushPublicKey: notifier.publicKey, email: notifier.emailEnabled });
+  }
+
+  if (req.method === 'POST' && pathname.startsWith('/api/') && rateLimited(req)) {
+    return sendJson(res, 429, { error: 'Trop de demandes, réessaie dans une minute.' });
+  }
+
+  if (pathname === '/api/push/subscribe' && req.method === 'POST') {
+    const body = await readJson(req);
+    const ok = await notifier.addPush(body.subscription);
+    return sendJson(res, ok ? 201 : 400, ok ? { ok } : { error: 'Abonnement invalide.' });
+  }
+  if (pathname === '/api/push/unsubscribe' && req.method === 'POST') {
+    const body = await readJson(req);
+    if (typeof body.endpoint === 'string') await notifier.removePush(body.endpoint);
+    return sendJson(res, 200, { ok: true });
+  }
+
+  if (pathname === '/api/email/subscribe' && req.method === 'POST') {
+    const body = await readJson(req);
+    try {
+      const result = await notifier.addEmail(body.email);
+      if (result === 'invalid') return sendJson(res, 400, { error: 'Adresse e-mail invalide.' });
+      if (result === 'disabled') return sendJson(res, 503, { error: 'Les e-mails ne sont pas configurés.' });
+      if (result === 'full') return sendJson(res, 503, { error: 'Les inscriptions sont pleines.' });
+      return sendJson(res, 202, { ok: true });
+    } catch (err) {
+      console.error('[email] subscribe failed:', err.message);
+      return sendJson(res, 502, { error: 'Impossible d’envoyer l’e-mail de confirmation pour le moment.' });
+    }
+  }
+
+  const token = searchParams.get('token') || '';
+  if (pathname === '/email/confirm' && req.method === 'GET') {
+    return await notifier.confirmEmail(token)
+      ? sendPage(res, 200, 'Abonnement confirmé', 'Tu recevras la blague plate du jour par e-mail : à midi en semaine, à minuit le week-end (heure de New York).')
+      : sendPage(res, 404, 'Lien invalide', 'Ce lien de confirmation n’est plus valide.');
+  }
+  if (pathname === '/email/unsubscribe') {
+    const removed = await notifier.removeEmail(token);
+    if (req.method === 'POST') return send(res, 200, 'ok'); // one-click unsubscribe from mail apps
+    return sendPage(res, 200, 'Désabonné', removed
+      ? 'Tu ne recevras plus la blague du jour par e-mail.'
+      : 'Cette adresse n’est déjà plus abonnée.');
+  }
+  return false;
+}
+
 async function handleStatic(req, res, pathname) {
   if (pathname === '/') pathname = '/index.html';
   const filePath = path.normalize(path.join(PUBLIC_DIR, pathname));
@@ -258,20 +371,24 @@ async function handleStatic(req, res, pathname) {
 
 const server = http.createServer(async (req, res) => {
   try {
+    const { pathname, searchParams } = new URL(req.url, 'http://localhost');
+    if ((await handleSubscriptions(req, res, pathname, searchParams)) !== false) return;
     if (req.method !== 'GET' && req.method !== 'HEAD') return send(res, 405, 'Method not allowed');
-    const { pathname } = new URL(req.url, 'http://localhost');
     if (pathname === '/api/joke') return await handleApi(req, res);
     if (pathname === '/healthz') return send(res, 200, 'ok', { 'Content-Type': MIME['.txt'] });
     return await handleStatic(req, res, decodeURIComponent(pathname));
   } catch (err) {
-    console.error(err);
-    if (!res.headersSent) send(res, 500, 'Internal error');
+    if (!err.status) console.error(err);
+    if (!res.headersSent) send(res, err.status || 500, err.status ? err.message : 'Internal error');
   }
 });
 
 loadStore();
+const notifier = createNotifier({ dataDir: DATA_DIR });
+// First start: nothing to catch up on. After downtime across a change: send the missed one.
+if (!store.notified) store.notified = jokePeriod().key;
 scheduleRefresh();
-getTodayJoke().catch((err) => console.error(err));
+notifyNewJoke().catch((err) => console.error(err));
 server.listen(PORT, () => console.log(`Dad Jokes listening on :${PORT}`));
 
 for (const signal of ['SIGINT', 'SIGTERM']) {
