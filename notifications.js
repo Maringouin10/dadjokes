@@ -57,12 +57,22 @@ function createNotifier({ dataDir }) {
       console.log('[push] generated VAPID keys in', vapidFile);
     }
   }
-  const subject = process.env.VAPID_SUBJECT
-    || (PUBLIC_URL.startsWith('https://') ? PUBLIC_URL : 'mailto:noreply@example.com');
-  webpush.setVapidDetails(subject, vapid.publicKey, vapid.privateKey);
+  // A bad VAPID_SUBJECT must never crash the server: web-push throws on anything but mailto:/https:.
+  const rawSubject = (process.env.VAPID_SUBJECT || '').trim();
+  const subject = /^[^\s@:]+@[^\s@]+$/.test(rawSubject) ? `mailto:${rawSubject}` // plain address
+    : rawSubject || (PUBLIC_URL.startsWith('https://') ? PUBLIC_URL : 'mailto:noreply@example.com');
+  let vapidError = null;
+  try {
+    webpush.setVapidDetails(subject, vapid.publicKey, vapid.privateKey);
+  } catch (err) {
+    vapidError = err.message;
+    console.error('[push] VAPID config error:', err.message);
+    try {
+      webpush.setVapidDetails('mailto:noreply@example.com', vapid.publicKey, vapid.privateKey);
+    } catch { /* keys themselves are invalid: reported by diagnose(), push stays off */ }
+  }
 
   const emailEnabled = Boolean(RESEND_API_KEY && EMAIL_FROM && PUBLIC_URL);
-  if (!emailEnabled) console.log('[email] disabled: set RESEND_API_KEY, EMAIL_FROM and PUBLIC_URL to enable');
 
   let saving = Promise.resolve();
   function save() {
@@ -92,7 +102,7 @@ function createNotifier({ dataDir }) {
       return true;
     } catch (err) {
       if (err.statusCode === 404 || err.statusCode === 410) return false; // expired: drop it
-      console.warn('[push] send failed:', err.statusCode || '', err.message);
+      console.warn(`[push] send to ${new URL(sub.endpoint).hostname} failed: ${err.statusCode || ''} ${err.body || err.message}`);
       return true;
     }
   }
@@ -100,11 +110,10 @@ function createNotifier({ dataDir }) {
   async function addPush(sub) {
     if (!validPushSubscription(sub)) return false;
     const clean = { endpoint: sub.endpoint, keys: { p256dh: sub.keys.p256dh, auth: sub.keys.auth } };
-    if (!subs.push.some((s) => s.endpoint === clean.endpoint)) {
-      if (subs.push.length >= 50000) return false;
-      subs.push.push({ ...clean, createdAt: new Date().toISOString() });
-      await save();
-    }
+    if (subs.push.some((s) => s.endpoint === clean.endpoint)) return true;
+    if (subs.push.length >= 50000) return false;
+    subs.push.push({ ...clean, createdAt: new Date().toISOString() });
+    await save();
     await sendPush(clean, {
       title: 'Notifications activées',
       body: 'Tu recevras la blague plate du jour dès qu’elle sort.',
@@ -148,7 +157,12 @@ function createNotifier({ dataDir }) {
       body: JSON.stringify(body),
       signal: AbortSignal.timeout(15000),
     });
-    if (!res.ok) throw new Error(`Resend ${res.status}: ${(await res.text()).slice(0, 300)}`);
+    if (!res.ok) {
+      const text = await res.text();
+      let message = text.slice(0, 300);
+      try { message = JSON.parse(text).message || message; } catch { /* not JSON */ }
+      throw Object.assign(new Error(`Resend ${res.status}: ${message}`), { resendMessage: message });
+    }
     return res.json();
   }
 
@@ -251,6 +265,55 @@ ${inner}${footer}
     console.log(`[email] sent to ${sent}/${confirmed.length}`);
   }
 
+  // Startup report: says plainly what is missing or wrong, without printing secrets.
+  async function diagnose() {
+    const lines = [];
+    const ok = (t) => lines.push(`  ✅ ${t}`);
+    const bad = (t) => lines.push(`  ❌ ${t}`);
+    const warn = (t) => lines.push(`  ⚠️  ${t}`);
+
+    if (!PUBLIC_URL) warn('PUBLIC_URL vide : nécessaire pour les e-mails (ex. https://blague.tondomaine.com)');
+    else if (!/^https:\/\//.test(PUBLIC_URL)) warn(`PUBLIC_URL=${PUBLIC_URL} n’est pas en https:// : les notifications push ne marcheront pas dans le navigateur`);
+    else ok(`PUBLIC_URL=${PUBLIC_URL}`);
+
+    if (vapidError) bad(`Push : configuration VAPID invalide (${vapidError}). VAPID_SUBJECT doit être une adresse e-mail ou une URL https://`);
+    else ok(`Push : prêt (contact ${subject}), ${subs.push.length} abonné(s)`);
+    if (!rawSubject) warn('VAPID_SUBJECT vide : mets ton adresse e-mail (Apple peut refuser les notifications sinon)');
+
+    const missing = ['RESEND_API_KEY', 'EMAIL_FROM', 'PUBLIC_URL'].filter((k) => !process.env[k]);
+    if (missing.length) {
+      bad(`E-mail désactivé : variable(s) manquante(s) ${missing.join(', ')} (le bouton E-mail reste caché)`);
+      return lines;
+    }
+    if (!RESEND_API_KEY.startsWith('re_')) bad('RESEND_API_KEY ne ressemble pas à une clé Resend (elle commence par re_)');
+    const fromDomain = (EMAIL_FROM.match(/@([^>\s]+)>?\s*$/) || [])[1];
+    if (!fromDomain) {
+      bad(`EMAIL_FROM invalide : « ${EMAIL_FROM} » (format : Nom <adresse@domaine.com> ou adresse@domaine.com)`);
+      return lines;
+    }
+    try {
+      const res = await fetch('https://api.resend.com/domains', {
+        headers: { Authorization: `Bearer ${RESEND_API_KEY}` }, signal: AbortSignal.timeout(10000),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (res.status === 401 && data.name === 'restricted_api_key') {
+        ok(`Resend : clé valide (limitée à l’envoi, domaine ${fromDomain} non vérifiable d’ici)`);
+      } else if (!res.ok) {
+        bad(`Resend refuse la clé (${res.status}) : ${data.message || 'clé invalide'}`);
+      } else if (fromDomain === 'resend.dev') {
+        warn('EMAIL_FROM utilise resend.dev : Resend n’envoie alors qu’à l’adresse de ton compte Resend');
+      } else {
+        const domain = (data.data || []).find((d) => d.name === fromDomain);
+        if (!domain) bad(`Le domaine ${fromDomain} (de EMAIL_FROM) n’est pas ajouté dans Resend → resend.com/domains`);
+        else if (domain.status !== 'verified') bad(`Le domaine ${fromDomain} n’est pas encore vérifié dans Resend (statut : ${domain.status}) → ajoute les DNS`);
+        else ok(`E-mail : Resend OK, domaine ${fromDomain} vérifié`);
+      }
+    } catch (err) {
+      bad(`Impossible de joindre l’API Resend : ${err.message}`);
+    }
+    return lines;
+  }
+
   async function notifyAll(joke, key) {
     await Promise.all([
       pushAll(joke, key).catch((err) => console.error('[push]', err)),
@@ -267,6 +330,7 @@ ${inner}${footer}
     confirmEmail,
     removeEmail,
     notifyAll,
+    diagnose,
   };
 }
 

@@ -257,10 +257,9 @@
     pushButton.textContent = on ? 'Notifications ✓' : 'Notifications';
   }
 
-  async function currentSubscription() {
-    const reg = await navigator.serviceWorker.ready;
-    return reg.pushManager.getSubscription();
-  }
+  // Filled in at load time, so a click can ask for permission straight away:
+  // Safari and Firefox ignore the request if anything is awaited before it.
+  let pushSub = null;
 
   async function postJson(url, body) {
     const res = await fetch(url, {
@@ -284,32 +283,35 @@
     }
     pushButton.disabled = true;
     try {
-      const existing = await currentSubscription();
-      if (existing) {
-        await postJson('/api/push/unsubscribe', { endpoint: existing.endpoint }).catch(() => {});
-        await existing.unsubscribe();
+      if (pushSub) {
+        const old = pushSub;
+        pushSub = null;
         setPushState(false);
+        await postJson('/api/push/unsubscribe', { endpoint: old.endpoint }).catch(() => {});
+        await old.unsubscribe().catch(() => {});
         toast('Notifications désactivées');
         return;
       }
-      const permission = await Notification.requestPermission();
+      const permission = await Notification.requestPermission(); // first await: still inside the click
       if (permission !== 'granted') {
         toast('Notifications refusées. Tu peux les autoriser dans les réglages du navigateur.');
         return;
       }
+      if (!config) throw new Error('config not loaded');
       const reg = await navigator.serviceWorker.ready;
-      const sub = await reg.pushManager.subscribe({
+      const sub = (await reg.pushManager.getSubscription()) || await reg.pushManager.subscribe({
         userVisibleOnly: true,
         applicationServerKey: urlBase64ToUint8Array(config.pushPublicKey),
       });
       await postJson('/api/push/subscribe', { subscription: sub.toJSON() });
+      pushSub = sub;
       setPushState(true);
       toast('Notifications activées');
     } catch (err) {
       console.error(err);
       toast(Notification.permission === 'denied'
         ? 'Notifications bloquées. Autorise-les dans les réglages du navigateur.'
-        : 'Impossible d’activer les notifications pour le moment.');
+        : `Impossible d’activer les notifications : ${err.message}`);
     } finally {
       pushButton.disabled = false;
     }
@@ -368,7 +370,15 @@
     // Shown where push works, or with an explanation where it could (HTTPS, iPhone home screen).
     pushButton.hidden = !(pushSupported || (isIos && !isStandalone) || !window.isSecureContext);
     if (pushSupported && window.isSecureContext) {
-      currentSubscription().then((sub) => setPushState(Boolean(sub))).catch(() => {});
+      navigator.serviceWorker.ready
+        .then((reg) => reg.pushManager.getSubscription())
+        .then((sub) => {
+          pushSub = sub;
+          setPushState(Boolean(sub));
+          // Keep the server in sync (e.g. after its data volume was reset).
+          if (sub) postJson('/api/push/subscribe', { subscription: sub.toJSON() }).catch(() => {});
+        })
+        .catch(() => {});
     }
   }
 

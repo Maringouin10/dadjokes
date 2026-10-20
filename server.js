@@ -333,7 +333,11 @@ async function handleSubscriptions(req, res, pathname, searchParams) {
       return sendJson(res, 202, { ok: true });
     } catch (err) {
       console.error('[email] subscribe failed:', err.message);
-      return sendJson(res, 502, { error: 'Impossible d’envoyer l’e-mail de confirmation pour le moment.' });
+      return sendJson(res, 502, {
+        error: err.resendMessage
+          ? `Envoi refusé par Resend : ${err.resendMessage}`
+          : 'Impossible d’envoyer l’e-mail de confirmation pour le moment.',
+      });
     }
   }
 
@@ -390,6 +394,7 @@ if (!store.notified) store.notified = jokePeriod().key;
 scheduleRefresh();
 notifyNewJoke().catch((err) => console.error(err));
 server.listen(PORT, () => console.log(`Dad Jokes listening on :${PORT}`));
+notifier.diagnose().then((lines) => console.log(['[config] Notifications :', ...lines].join('\n')));
 
 for (const signal of ['SIGINT', 'SIGTERM']) {
   process.on(signal, () => server.close(() => process.exit(0)));

@@ -44,7 +44,7 @@ Both are sent once per joke, right when it changes.
 - **Requires HTTPS** (browsers block push on plain `http://<ip>`). Put the site behind a reverse
   proxy with a certificate (Caddy, Nginx + Let's Encrypt, Cloudflare Tunnel…).
 - VAPID keys are generated on first start and kept in `/data/vapid.json` (or set
-  `VAPID_PUBLIC_KEY` / `VAPID_PRIVATE_KEY`). Set `VAPID_SUBJECT` to `mailto:you@yourdomain.com`.
+  `VAPID_PUBLIC_KEY` / `VAPID_PRIVATE_KEY`). Set `VAPID_SUBJECT` to your e-mail address.
 
 ### E-mail (Resend)
 
@@ -55,12 +55,21 @@ Both are sent once per joke, right when it changes.
 PUBLIC_URL=https://blague.yourdomain.com
 RESEND_API_KEY=re_xxxxxxxx
 EMAIL_FROM=La blague plate du jour <blague@yourdomain.com>
-VAPID_SUBJECT=mailto:you@yourdomain.com
+VAPID_SUBJECT=you@yourdomain.com
 ```
 
 Sign-up uses double opt-in (a confirmation link is e-mailed first). Every e-mail has an
 unsubscribe link and one-click `List-Unsubscribe` headers. The e-mail button only shows when
 all three e-mail variables are set. Subscribers are stored in `/data/subscribers.json`.
+
+### Troubleshooting
+
+At startup the server prints what is configured and what is wrong (missing variable, invalid
+Resend key, unverified domain, no HTTPS…):
+
+```sh
+docker compose logs dadjokes | grep -A8 '\[config\]'
+```
 
 ## API
 

@@ -14,7 +14,7 @@ services:
       # E-mails via Resend (https://resend.com) : clé API et expéditeur d'un domaine vérifié
       - RESEND_API_KEY=${RESEND_API_KEY:-}
       - EMAIL_FROM=${EMAIL_FROM:-}
-      # Contact pour les services de push, ex. mailto:toi@exemple.com
+      # Ton adresse e-mail, contact pour les services de push (ex. toi@exemple.com)
       - VAPID_SUBJECT=${VAPID_SUBJECT:-}
     restart: unless-stopped
 
