@@ -40,23 +40,38 @@ function nyParts(date) {
   return { y: get('year'), m: get('month'), d: get('day'), h: get('hour'), min: get('minute'), s: get('second') };
 }
 
-function nyDateKey(date = new Date()) {
-  const { y, m, d } = nyParts(date);
-  return `${y}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
-}
-
-// UTC instant of the next midnight in New York (DST-safe).
-function nextNyMidnight(now = new Date()) {
-  const { y, m, d } = nyParts(now);
-  // Start from a guess (UTC midnight of next NY day + 5h) and correct with the real offset.
-  let guess = Date.UTC(y, m - 1, d + 1, 5, 0, 0);
+// UTC instant of a wall-clock time in New York (DST-safe). Day overflow (d + 1) is fine.
+function nyTimeToUtc(y, m, d, h) {
+  const target = Date.UTC(y, m - 1, d, h, 0, 0);
+  let guess = target + 5 * 3600e3; // New York is UTC-4 or UTC-5: start close, then correct
   for (let i = 0; i < 3; i++) {
     const p = nyParts(new Date(guess));
-    const asUtc = Date.UTC(p.y, p.m - 1, p.d, p.h, p.min, p.s);
-    const target = Date.UTC(y, m - 1, d + 1, 0, 0, 0);
-    guess += target - asUtc;
+    guess += target - Date.UTC(p.y, p.m - 1, p.d, p.h, p.min, p.s);
   }
   return new Date(guess);
+}
+
+// The joke changes once per New York calendar day:
+// at noon from Monday to Friday, at midnight on Saturday and Sunday.
+const WEEKDAY_CHANGE_HOUR = 12;
+const WEEKEND_CHANGE_HOUR = 0;
+
+function changeTimeOn(y, m, d) {
+  const weekday = new Date(Date.UTC(y, m - 1, d)).getUTCDay(); // 0 = Sunday, 6 = Saturday
+  const hour = weekday === 0 || weekday === 6 ? WEEKEND_CHANGE_HOUR : WEEKDAY_CHANGE_HOUR;
+  return nyTimeToUtc(y, m, d, hour);
+}
+
+// The current joke period: keyed by the New York date it started on, and when the next one starts.
+function jokePeriod(now = new Date()) {
+  const { y, m, d } = nyParts(now);
+  let day = new Date(Date.UTC(y, m - 1, d));
+  if (changeTimeOn(y, m, d) > now) day = new Date(day.getTime() - 86400e3); // today's change is still ahead
+  const [py, pm, pd] = [day.getUTCFullYear(), day.getUTCMonth() + 1, day.getUTCDate()];
+  return {
+    key: `${py}-${String(pm).padStart(2, '0')}-${String(pd).padStart(2, '0')}`,
+    next: changeTimeOn(py, pm, pd + 1),
+  };
 }
 
 // ---------- Storage ----------
@@ -167,7 +182,7 @@ async function pickNewJoke(dayKey) {
 let pending = null;
 
 async function getTodayJoke() {
-  const dayKey = nyDateKey();
+  const dayKey = jokePeriod().key;
   const existing = store.days[dayKey];
   // A fallback joke is retried (at most every 10 min) in case the APIs are back.
   // Jokes stored before the switch to French (no lang) are replaced.
@@ -185,11 +200,11 @@ async function getTodayJoke() {
   return { dayKey, joke: store.days[dayKey] };
 }
 
-function scheduleMidnightRefresh() {
-  const delay = nextNyMidnight().getTime() - Date.now() + 1000;
+function scheduleRefresh() {
+  const delay = jokePeriod().next.getTime() - Date.now() + 1000;
   setTimeout(async () => {
     await getTodayJoke().catch((err) => console.error(err));
-    scheduleMidnightRefresh();
+    scheduleRefresh();
   }, delay);
 }
 
@@ -206,7 +221,7 @@ function send(res, status, body, headers = {}) {
 
 async function handleApi(req, res) {
   const { dayKey, joke } = await getTodayJoke();
-  const nextChange = nextNyMidnight();
+  const nextChange = jokePeriod().next;
   // Two-part jokes are stored as "setup\npunchline".
   const [setup, ...rest] = joke.text.split('\n');
   const punchline = rest.join('\n').trim() || null;
@@ -255,7 +270,7 @@ const server = http.createServer(async (req, res) => {
 });
 
 loadStore();
-scheduleMidnightRefresh();
+scheduleRefresh();
 getTodayJoke().catch((err) => console.error(err));
 server.listen(PORT, () => console.log(`Dad Jokes listening on :${PORT}`));
 

@@ -40,7 +40,7 @@
     } else {
       els.source.append(data.source);
     }
-    els.source.append(' · Nouvelle blague à minuit, heure de New York');
+    els.source.append(' · Nouvelle blague à midi en semaine, à minuit le week-end (heure de New York)');
   }
 
   function render(data) {
@@ -72,7 +72,7 @@
     clearInterval(countdownTimer);
     updateCountdown(at);
     countdownTimer = setInterval(() => updateCountdown(at), 30 * 1000);
-    // Fetch the new joke a couple of seconds after midnight New York time.
+    // Fetch the new joke a couple of seconds after the change (noon on weekdays, midnight on weekends).
     refreshTimer = setTimeout(load, Math.max(1000, at - Date.now() + 2000));
   }
 
