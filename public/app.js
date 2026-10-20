@@ -109,12 +109,31 @@
     els.back.setAttribute('aria-hidden', String(!flipped));
   }
 
-  function turn(direction) {
+  const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)');
+  let running = null;
+
+  function stopAnimation() {
+    if (!running) return;
+    running.cancel();
+    running = null;
+    els.flip.classList.remove('is-animating');
+  }
+
+  // `from` is where the card is now: its resting angle, or wherever a swipe left it.
+  function turn(direction, from = angle) {
+    stopAnimation();
+    const animate = !reducedMotion.matches && window.FlipAnimations;
+    if (animate) els.flip.classList.add('is-animating');
     angle += direction < 0 ? -180 : 180;
     applyAngle();
+    if (!animate) return;
+    const { anim } = window.FlipAnimations.play(els.flipInner, from, angle, { particles: flipped });
+    running = anim;
+    anim.finished.then(() => { if (running === anim) stopAnimation(); }, () => {});
   }
 
   function resetCard() {
+    stopAnimation();
     angle = 0;
     applyAngle();
   }
@@ -123,6 +142,7 @@
 
   els.flip.addEventListener('pointerdown', (e) => {
     if (e.button !== 0) return;
+    stopAnimation();
     drag = { id: e.pointerId, x: e.clientX, y: e.clientY, t: e.timeStamp, dx: 0, active: false };
   });
 
@@ -137,19 +157,20 @@
       els.flip.classList.add('is-dragging');
     }
     drag.dx = dx;
+    drag.live = angle + Math.max(-180, Math.min(180, dx * 0.6));
     const live = angle + Math.max(-180, Math.min(180, dx * 0.6));
     els.flipInner.style.transform = `rotateY(${live}deg)`;
   });
 
   function endDrag(e) {
     if (!drag || e.pointerId !== drag.id) return;
-    const { active, dx, t } = drag;
+    const { active, dx, t, live } = drag;
     drag = null;
     els.flip.classList.remove('is-dragging');
     if (!active) return; // a plain tap is handled by the click event
     lastSwipe = Date.now();
     const speed = Math.abs(dx) / Math.max(1, e.timeStamp - t);
-    if (Math.abs(dx) > 70 || (Math.abs(dx) > 30 && speed > 0.5)) turn(dx);
+    if (Math.abs(dx) > 70 || (Math.abs(dx) > 30 && speed > 0.5)) turn(dx, live);
     else applyAngle(); // not far enough: snap back
   }
 

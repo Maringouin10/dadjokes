@@ -239,3 +239,21 @@ body {
 }
 
 .toast:empty { display: none; }
+
+/* While a flip animation runs, the Web Animation drives the transform, not the CSS transition. */
+.flip.is-animating .flip-inner { transition: none; }
+
+.particles {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  overflow: hidden;
+  z-index: 10;
+}
+
+.particles span {
+  position: absolute;
+  font-size: 2rem;
+  line-height: 1;
+  will-change: transform, opacity;
+}

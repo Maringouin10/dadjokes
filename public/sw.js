@@ -1,6 +1,6 @@
-const CACHE = 'dadjokes-v4';
+const CACHE = 'dadjokes-v5';
 const SHELL = [
-  '/', '/index.html', '/styles.css', '/app.js', '/manifest.webmanifest',
+  '/', '/index.html', '/styles.css', '/app.js', '/flip-animations.js', '/manifest.webmanifest',
   '/icons/icon.svg', '/icons/icon-192.png', '/icons/icon-512.png', '/icons/apple-touch-icon.png',
 ];
 
