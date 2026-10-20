@@ -8,7 +8,7 @@ const path = require('node:path');
 const crypto = require('node:crypto');
 const webpush = require('web-push');
 
-const RESEND_API_KEY = process.env.RESEND_API_KEY || '';
+const RESEND_API_KEY = process.env.RESEND_API_KEY || process.env.RESEND_API || ''; // RESEND_API: common typo
 const EMAIL_FROM = process.env.EMAIL_FROM || '';
 const PUBLIC_URL = (process.env.PUBLIC_URL || '').replace(/\/+$/, '');
 
@@ -280,7 +280,8 @@ ${inner}${footer}
     else ok(`Push : prêt (contact ${subject}), ${subs.push.length} abonné(s)`);
     if (!rawSubject) warn('VAPID_SUBJECT vide : mets ton adresse e-mail (Apple peut refuser les notifications sinon)');
 
-    const missing = ['RESEND_API_KEY', 'EMAIL_FROM', 'PUBLIC_URL'].filter((k) => !process.env[k]);
+    const missing = [['RESEND_API_KEY', RESEND_API_KEY], ['EMAIL_FROM', EMAIL_FROM], ['PUBLIC_URL', PUBLIC_URL]]
+      .filter(([, v]) => !v).map(([k]) => k);
     if (missing.length) {
       bad(`E-mail désactivé : variable(s) manquante(s) ${missing.join(', ')} (le bouton E-mail reste caché)`);
       return lines;

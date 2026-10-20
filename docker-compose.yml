@@ -12,7 +12,7 @@ services:
       # Adresse publique du site, en HTTPS (liens des e-mails ; nécessaire aux notifications push)
       - PUBLIC_URL=${PUBLIC_URL:-}
       # E-mails via Resend (https://resend.com) : clé API et expéditeur d'un domaine vérifié
-      - RESEND_API_KEY=${RESEND_API_KEY:-}
+      - RESEND_API_KEY=${RESEND_API_KEY:-${RESEND_API:-}}
       - EMAIL_FROM=${EMAIL_FROM:-}
       # Ton adresse e-mail, contact pour les services de push (ex. toi@exemple.com)
       - VAPID_SUBJECT=${VAPID_SUBJECT:-}
