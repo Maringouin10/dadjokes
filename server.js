@@ -52,15 +52,11 @@ function nyTimeToUtc(y, m, d, h) {
   return new Date(guess);
 }
 
-// The joke changes once per New York calendar day:
-// at noon from Monday to Friday, at midnight on Saturday and Sunday.
-const WEEKDAY_CHANGE_HOUR = 12;
-const WEEKEND_CHANGE_HOUR = 0;
+// The joke changes once per New York calendar day, at noon, every day.
+const CHANGE_HOUR = 12;
 
 function changeTimeOn(y, m, d) {
-  const weekday = new Date(Date.UTC(y, m - 1, d)).getUTCDay(); // 0 = Sunday, 6 = Saturday
-  const hour = weekday === 0 || weekday === 6 ? WEEKEND_CHANGE_HOUR : WEEKDAY_CHANGE_HOUR;
-  return nyTimeToUtc(y, m, d, hour);
+  return nyTimeToUtc(y, m, d, CHANGE_HOUR);
 }
 
 // The current joke period: keyed by the New York date it started on, and when the next one starts.
@@ -252,6 +248,33 @@ async function handleApi(req, res) {
   });
 }
 
+// ---------- History ----------
+
+const HISTORY_DAYS = 7;
+
+// Jokes of the previous periods, newest first, from at most 7 days before the current one.
+function handleHistory(req, res) {
+  const { key } = jokePeriod();
+  const [y, m, d] = key.split('-').map(Number);
+  const oldest = new Date(Date.UTC(y, m - 1, d - HISTORY_DAYS)).toISOString().slice(0, 10);
+  const jokes = Object.entries(store.days)
+    .filter(([day, joke]) => day < key && day >= oldest && joke.lang === 'fr')
+    .sort(([a], [b]) => (a < b ? 1 : -1))
+    .map(([day, joke]) => {
+      const [setup, ...rest] = joke.text.split('\n');
+      const punchline = rest.join('\n').trim() || null;
+      return {
+        date: day,
+        joke: joke.text,
+        setup: punchline ? setup : null,
+        punchline,
+        source: joke.source,
+        sourceUrl: joke.sourceUrl,
+      };
+    });
+  sendJson(res, 200, { days: HISTORY_DAYS, jokes });
+}
+
 // ---------- Subscriptions ----------
 
 function readJson(req, limit = 8 * 1024) {
@@ -344,7 +367,7 @@ async function handleSubscriptions(req, res, pathname, searchParams) {
   const token = searchParams.get('token') || '';
   if (pathname === '/email/confirm' && req.method === 'GET') {
     return await notifier.confirmEmail(token)
-      ? sendPage(res, 200, 'Abonnement confirmé', 'Tu recevras la blague plate du jour par e-mail : à midi en semaine, à minuit le week-end (heure de New York).')
+      ? sendPage(res, 200, 'Abonnement confirmé', 'Tu recevras la blague plate du jour par e-mail, chaque jour à midi (heure de New York).')
       : sendPage(res, 404, 'Lien invalide', 'Ce lien de confirmation n’est plus valide.');
   }
   if (pathname === '/email/unsubscribe') {
@@ -379,6 +402,7 @@ const server = http.createServer(async (req, res) => {
     if ((await handleSubscriptions(req, res, pathname, searchParams)) !== false) return;
     if (req.method !== 'GET' && req.method !== 'HEAD') return send(res, 405, 'Method not allowed');
     if (pathname === '/api/joke') return await handleApi(req, res);
+    if (pathname === '/api/history') return handleHistory(req, res);
     if (pathname === '/healthz') return send(res, 200, 'ok', { 'Content-Type': MIME['.txt'] });
     return await handleStatic(req, res, decodeURIComponent(pathname));
   } catch (err) {

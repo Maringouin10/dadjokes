@@ -40,7 +40,7 @@
     } else {
       els.source.append(data.source);
     }
-    els.source.append(' · Nouvelle blague à midi en semaine, à minuit le week-end (heure de New York)');
+    els.source.append(' · Nouvelle blague chaque jour à midi (heure de New York)');
   }
 
   function render(data) {
@@ -73,7 +73,7 @@
     clearInterval(countdownTimer);
     updateCountdown(at);
     countdownTimer = setInterval(() => updateCountdown(at), 30 * 1000);
-    // Fetch the new joke a couple of seconds after the change (noon on weekdays, midnight on weekends).
+    // Fetch the new joke a couple of seconds after the change (noon, New York time).
     refreshTimer = setTimeout(load, Math.max(1000, at - Date.now() + 2000));
   }
 
@@ -249,6 +249,65 @@
       ? 'Blague copiée dans le presse-papier'
       : 'Impossible de copier la blague');
   });
+
+  // ---------- History (last 7 days) ----------
+
+  const historyDialog = $('history-dialog');
+  const historyList = $('history-list');
+
+  function historyItem(entry) {
+    const li = document.createElement('li');
+    li.className = 'history-item';
+    const date = document.createElement('p');
+    date.className = 'history-date';
+    date.textContent = formatDate(entry.date);
+    const text = document.createElement('p');
+    text.className = 'history-joke';
+    text.textContent = entry.setup || entry.joke;
+    li.append(date, text);
+    if (entry.punchline) {
+      const details = document.createElement('details');
+      const summary = document.createElement('summary');
+      summary.textContent = 'Voir la réponse';
+      const answer = document.createElement('p');
+      answer.className = 'history-answer';
+      answer.textContent = entry.punchline;
+      details.append(summary, answer);
+      li.append(details);
+    }
+    const source = document.createElement('p');
+    source.className = 'history-source';
+    if (entry.sourceUrl) {
+      const a = document.createElement('a');
+      a.href = entry.sourceUrl;
+      a.target = '_blank';
+      a.rel = 'noopener noreferrer';
+      a.textContent = entry.source;
+      source.append('Source : ', a);
+    } else {
+      source.textContent = `Source : ${entry.source}`;
+    }
+    li.append(source);
+    return li;
+  }
+
+  $('history-open').addEventListener('click', async () => {
+    historyList.replaceChildren();
+    $('history-empty').hidden = true;
+    historyDialog.showModal();
+    try {
+      const res = await fetch('/api/history', { cache: 'no-store' });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const { jokes } = await res.json();
+      historyList.replaceChildren(...jokes.map(historyItem));
+      $('history-empty').hidden = jokes.length > 0;
+    } catch {
+      $('history-empty').textContent = 'Impossible de charger l’historique. Vérifie ta connexion.';
+      $('history-empty').hidden = false;
+    }
+  });
+  $('history-close').addEventListener('click', () => historyDialog.close());
+  historyDialog.addEventListener('click', (e) => { if (e.target === historyDialog) historyDialog.close(); });
 
   // ---------- Push notifications ----------
 

@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <title>Blague du jour</title>
-  <meta name="description" content="Une nouvelle blague plate chaque jour : à midi en semaine, à minuit le week-end (heure de New York).">
+  <meta name="description" content="Une nouvelle blague plate chaque jour à midi (heure de New York).">
   <meta name="theme-color" content="#f5f5f7" media="(prefers-color-scheme: light)">
   <meta name="theme-color" content="#000000" media="(prefers-color-scheme: dark)">
   <meta name="color-scheme" content="light dark">
@@ -23,6 +23,13 @@
     <header class="header">
       <p class="eyebrow" id="date">Aujourd’hui</p>
       <h1 class="title">La blague plate du jour</h1>
+      <button class="icon-button" id="history-open" type="button" aria-label="Historique des 7 derniers jours"
+              aria-haspopup="dialog">
+        <svg viewBox="0 0 24 24" width="24" height="24" aria-hidden="true" fill="none" stroke="currentColor"
+             stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M3 12a9 9 0 1 0 3-6.7"/><path d="M3 4v4h4"/><path d="M12 7v5l3 2"/>
+        </svg>
+      </button>
     </header>
 
     <article class="card" aria-live="polite" aria-busy="true" id="card">
@@ -58,10 +65,21 @@
     <p id="source">&nbsp;</p>
   </footer>
 
+  <dialog class="sheet history" id="history-dialog" aria-labelledby="history-title">
+    <div class="history-bar">
+      <h2 class="sheet-title" id="history-title">Les 7 derniers jours</h2>
+      <button class="text-button" id="history-close" type="button">OK</button>
+    </div>
+    <div class="history-body">
+      <ol class="history-list" id="history-list"></ol>
+      <p class="history-empty" id="history-empty" hidden>Pas encore d’anciennes blagues. Reviens demain !</p>
+    </div>
+  </dialog>
+
   <dialog class="sheet" id="email-dialog" aria-labelledby="email-title">
     <form class="sheet-form" id="email-form" novalidate>
       <h2 class="sheet-title" id="email-title">La blague par e-mail</h2>
-      <p class="sheet-text">Reçois la blague plate du jour dans ta boîte mail : à midi en semaine, à minuit le week-end (heure de New York).</p>
+      <p class="sheet-text">Reçois la blague plate du jour dans ta boîte mail, chaque jour à midi (heure de New York).</p>
       <label class="visually-hidden" for="email-input">Adresse e-mail</label>
       <input class="field" id="email-input" name="email" type="email" inputmode="email" autocomplete="email"
              placeholder="toi@exemple.com" required maxlength="254">

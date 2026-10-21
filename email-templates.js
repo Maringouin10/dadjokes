@@ -107,7 +107,7 @@ ${text(punchline, 'accent', C.accent)}`, { padding: '32px 28px' }),
   ];
 }
 
-const SCHEDULE = 'Une nouvelle blague à midi en semaine, à minuit le week-end (heure de New York).';
+const SCHEDULE = 'Une nouvelle blague chaque jour à midi (heure de New York).';
 
 function footerHtml({ joke, unsubscribeUrl }) {
   const source = joke.sourceUrl

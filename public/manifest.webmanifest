@@ -1,7 +1,7 @@
 {
   "name": "La blague plate du jour",
   "short_name": "Blague du jour",
-  "description": "Une nouvelle blague plate chaque jour : à midi en semaine, à minuit le week-end (heure de New York).",
+  "description": "Une nouvelle blague plate chaque jour à midi (heure de New York).",
   "id": "/",
   "lang": "fr",
   "start_url": "/",

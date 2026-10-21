@@ -1,8 +1,8 @@
 # Dad Jokes
 
 A minimal website that shows **one new dad joke every day**, in New York time
-(`America/New_York`, DST-aware): it changes at **noon from Monday to Friday** and at
-**midnight on Saturday and Sunday**, and stays the same for everyone until the next change.
+(`America/New_York`, DST-aware): it changes **every day at noon**, weekends included,
+and stays the same for everyone until the next day at noon.
 The source of the joke is shown in small print at the bottom of the screen.
 
 - Jokes are **in French**. They come from the free [JokeAPI](https://jokeapi.dev) (French
@@ -11,6 +11,7 @@ The source of the joke is shown in small print at the bottom of the screen.
   A small local list is used if every API is unreachable.
 - Two-part jokes show the setup on a card you swipe (or tap) to flip to the punchline. Each flip
   plays one of 20 animations at random (`?anim=1`…`?anim=20` in the URL forces one, to try them).
+- A clock button (top right) shows the jokes of the last 7 days, punchlines hidden until tapped.
 - Each day's joke is stored in `/data/jokes.json`, so it survives restarts and never repeats.
 - Sober, Apple-style design (system font, light/dark mode, 44 pt touch targets, safe areas,
   reduced motion), responsive, and installable as a PWA (manifest, service worker).
