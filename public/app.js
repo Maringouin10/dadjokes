@@ -52,6 +52,7 @@
       els.card.hidden = true;
       els.flip.hidden = false;
       resetCard();
+      revealFromLink();
     } else {
       els.joke.textContent = data.joke;
       els.card.hidden = false;
@@ -89,6 +90,17 @@
       clearTimeout(refreshTimer);
       refreshTimer = setTimeout(load, 60 * 1000);
     }
+  }
+
+  // Links from the daily e-mail ("Retourner la carte") open the site with ?reveal=1: flip once.
+  let revealPending = new URLSearchParams(location.search).has('reveal');
+  function revealFromLink() {
+    if (!revealPending) return;
+    revealPending = false;
+    const url = new URL(location.href);
+    url.searchParams.delete('reveal');
+    history.replaceState(null, '', url.pathname + url.search + url.hash);
+    setTimeout(() => { if (!flipped) turn(1); }, 700);
   }
 
   // ---------- Flip card: swipe, tap or keyboard ----------

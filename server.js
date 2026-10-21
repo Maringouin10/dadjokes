@@ -388,7 +388,10 @@ const server = http.createServer(async (req, res) => {
 });
 
 loadStore();
-const notifier = createNotifier({ dataDir: DATA_DIR });
+const notifier = createNotifier({
+  dataDir: DATA_DIR,
+  getCurrentJoke: () => getTodayJoke().then(({ dayKey, joke }) => ({ key: dayKey, joke })),
+});
 // First start: nothing to catch up on. After downtime across a change: send the missed one.
 if (!store.notified) store.notified = jokePeriod().key;
 scheduleRefresh();

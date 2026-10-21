@@ -7,6 +7,9 @@ const fsp = require('node:fs/promises');
 const path = require('node:path');
 const crypto = require('node:crypto');
 const webpush = require('web-push');
+const templates = require('./email-templates');
+
+const { escapeHtml, splitJoke } = templates;
 
 const RESEND_API_KEY = process.env.RESEND_API_KEY || process.env.RESEND_API || ''; // RESEND_API: common typo
 const EMAIL_FROM = process.env.EMAIL_FROM || '';
@@ -22,19 +25,7 @@ const PUSH_HOSTS = [
 
 const EMAIL_RE = /^[^\s@<>"',;]{1,64}@[^\s@<>"',;]{1,255}\.[a-z]{2,}$/i;
 
-function escapeHtml(text) {
-  return String(text).replace(/[&<>"']/g, (c) => ({
-    '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
-  })[c]);
-}
-
-function splitJoke(text) {
-  const [setup, ...rest] = text.split('\n');
-  const punchline = rest.join('\n').trim();
-  return punchline ? { setup, punchline } : { setup: null, punchline: null };
-}
-
-function createNotifier({ dataDir }) {
+function createNotifier({ dataDir, getCurrentJoke }) {
   const file = path.join(dataDir, 'subscribers.json');
   const vapidFile = path.join(dataDir, 'vapid.json');
   let subs = { push: [], emails: [] };
@@ -166,41 +157,23 @@ function createNotifier({ dataDir }) {
     return res.json();
   }
 
-  function layout(inner, unsubscribeUrl) {
-    const footer = unsubscribeUrl
-      ? `<p style="margin:32px 0 0;font-size:12px;color:#86868b;">Tu reçois cet e-mail parce que tu t’es abonné à la blague plate du jour.<br><a href="${escapeHtml(unsubscribeUrl)}" style="color:#86868b;">Se désabonner</a></p>`
-      : '';
-    return `<!doctype html><html lang="fr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width"></head>
-<body style="margin:0;padding:0;background:#f5f5f7;">
-<div style="max-width:560px;margin:0 auto;padding:32px 20px;font-family:-apple-system,BlinkMacSystemFont,'Helvetica Neue',Helvetica,Arial,sans-serif;color:#1d1d1f;">
-<p style="margin:0 0 4px;font-size:13px;font-weight:600;letter-spacing:.02em;text-transform:uppercase;color:#6e6e73;">La blague plate du jour</p>
-${inner}${footer}
-</div></body></html>`;
-  }
-
-  function jokeEmail(joke, sub) {
-    const unsubscribeUrl = `${PUBLIC_URL}/email/unsubscribe?token=${sub.token}`;
-    const { setup, punchline } = splitJoke(joke.text);
-    const card = (content) => `<div style="margin:20px 0 0;padding:32px 28px;background:#ffffff;border-radius:20px;text-align:center;">${content}</div>`;
-    const text = (t, color) => `<p style="margin:0;font-size:22px;line-height:1.35;font-weight:600;color:${color};">${escapeHtml(t)}</p>`;
-    const inner = setup
-      ? card(text(setup, '#1d1d1f'))
-        + '<p style="margin:16px 0 0;text-align:center;font-size:13px;color:#86868b;">La réponse est plus bas ↓</p>'
-        + '<div style="height:220px;"></div>'
-        + card(text(punchline, '#0071e3'))
-      : card(text(joke.text, '#1d1d1f'));
-    const source = `<p style="margin:16px 0 0;text-align:center;font-size:12px;color:#86868b;">Source : ${escapeHtml(joke.source)} · <a href="${escapeHtml(PUBLIC_URL)}" style="color:#0071e3;">Voir sur le site</a></p>`;
+  function toResend(sub, email) {
+    const unsubscribeUrl = unsubscribeUrlFor(sub);
     return {
       from: EMAIL_FROM,
       to: [sub.email],
-      subject: setup ? `😐 ${setup}` : '😐 La blague plate du jour',
-      html: layout(inner + source, unsubscribeUrl),
-      text: `${setup || joke.text}\n\n${punchline ? `Réponse : ${punchline}\n\n` : ''}Source : ${joke.source}\n${PUBLIC_URL}\n\nSe désabonner : ${unsubscribeUrl}`,
+      subject: email.subject,
+      html: email.html,
+      text: email.text,
       headers: {
         'List-Unsubscribe': `<${unsubscribeUrl}>`,
         'List-Unsubscribe-Post': 'List-Unsubscribe=One-Click',
       },
     };
+  }
+
+  function unsubscribeUrlFor(sub) {
+    return `${PUBLIC_URL}/email/unsubscribe?token=${sub.token}`;
   }
 
   async function addEmail(rawEmail) {
@@ -218,16 +191,8 @@ ${inner}${footer}
     sub.sentAt = new Date().toISOString();
     await save();
     const confirmUrl = `${PUBLIC_URL}/email/confirm?token=${sub.token}`;
-    await resend('/emails', {
-      from: EMAIL_FROM,
-      to: [email],
-      subject: 'Confirme ton abonnement à la blague plate du jour',
-      html: layout(`<h1 style="margin:0 0 12px;font-size:26px;">Une blague plate par jour ?</h1>
-<p style="margin:0 0 24px;font-size:17px;line-height:1.5;">Confirme ton adresse pour recevoir la blague du jour par e-mail : à midi en semaine, à minuit le week-end (heure de New York).</p>
-<p style="margin:0;"><a href="${escapeHtml(confirmUrl)}" style="display:inline-block;padding:12px 22px;border-radius:980px;background:#0071e3;color:#ffffff;font-size:17px;text-decoration:none;">Confirmer mon abonnement</a></p>
-<p style="margin:24px 0 0;font-size:13px;color:#86868b;">Si tu n’as rien demandé, ignore simplement cet e-mail.</p>`),
-      text: `Confirme ton abonnement à la blague plate du jour :\n${confirmUrl}\n\nSi tu n’as rien demandé, ignore cet e-mail.`,
-    });
+    const message = templates.confirmEmail({ baseUrl: PUBLIC_URL, confirmUrl });
+    await resend('/emails', { from: EMAIL_FROM, to: [sub.email], ...message });
     return 'ok';
   }
 
@@ -238,6 +203,12 @@ ${inner}${footer}
       sub.confirmed = true;
       sub.confirmedAt = new Date().toISOString();
       await save();
+      // Welcome e-mail with today's joke; the confirmation page doesn't wait for it.
+      Promise.resolve(getCurrentJoke && getCurrentJoke())
+        .then(({ joke, key }) => resend('/emails', toResend(sub, templates.welcomeEmail({
+          joke, key, baseUrl: PUBLIC_URL, unsubscribeUrl: unsubscribeUrlFor(sub),
+        }))))
+        .catch((err) => console.error('[email] welcome failed:', err.message));
     }
     return true;
   }
@@ -249,14 +220,16 @@ ${inner}${footer}
     return subs.emails.length !== before;
   }
 
-  async function emailAll(joke) {
+  async function emailAll(joke, key) {
     if (!emailEnabled) return;
     const confirmed = subs.emails.filter((s) => s.confirmed);
     let sent = 0;
     for (let i = 0; i < confirmed.length; i += 100) { // Resend batch: 100 e-mails per call
       const batch = confirmed.slice(i, i + 100);
       try {
-        await resend('/emails/batch', batch.map((s) => jokeEmail(joke, s)));
+        await resend('/emails/batch', batch.map((s) => toResend(s, templates.dailyEmail({
+          joke, key, baseUrl: PUBLIC_URL, unsubscribeUrl: unsubscribeUrlFor(s),
+        }))));
         sent += batch.length;
       } catch (err) {
         console.error('[email] batch failed:', err.message);
@@ -318,7 +291,7 @@ ${inner}${footer}
   async function notifyAll(joke, key) {
     await Promise.all([
       pushAll(joke, key).catch((err) => console.error('[push]', err)),
-      emailAll(joke).catch((err) => console.error('[email]', err)),
+      emailAll(joke, key).catch((err) => console.error('[email]', err)),
     ]);
   }
 
