@@ -72,6 +72,18 @@ Resend key, unverified domain, no HTTPS…):
 docker compose logs dadjokes | grep -A8 '\[config\]'
 ```
 
+## Admin (`/admin`)
+
+Hidden page (no link anywhere, `noindex`), protected by the `ADMIN_PASSWORD` variable
+(e.g. in the `.env` next to `docker-compose.yml`; empty = the page does not exist). It shows
+visits (total, today, 7 / 30 days, uniques), countries, cities, sources, devices, and the QR code
+of the site (PNG 2048 px or SVG, error correction H) built from `PUBLIC_URL`.
+
+Only humans are counted: the page sends a visit after a real gesture (touch, scroll, key…)
+plus a small proof-of-work, single-use and time-limited; known bot user agents are dropped
+and counted as "robots écartés". Country comes from the proxy header (`CF-IPCountry`…) or
+from ipwho.is; IPs are never stored (daily salted hash for the unique count).
+
 ## API
 
 `GET /api/joke`

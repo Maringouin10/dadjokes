@@ -5,6 +5,7 @@ const fs = require('node:fs');
 const fsp = require('node:fs/promises');
 const path = require('node:path');
 const { createNotifier, escapeHtml } = require('./notifications');
+const { createStats } = require('./stats');
 
 const PORT = Number(process.env.PORT) || 8002;
 const TIME_ZONE = 'America/New_York';
@@ -399,6 +400,7 @@ async function handleStatic(req, res, pathname) {
 const server = http.createServer(async (req, res) => {
   try {
     const { pathname, searchParams } = new URL(req.url, 'http://localhost');
+    if (await stats.handle(req, res, pathname)) return;
     if ((await handleSubscriptions(req, res, pathname, searchParams)) !== false) return;
     if (req.method !== 'GET' && req.method !== 'HEAD') return send(res, 405, 'Method not allowed');
     if (pathname === '/api/joke') return await handleApi(req, res);
@@ -412,6 +414,8 @@ const server = http.createServer(async (req, res) => {
 });
 
 loadStore();
+const stats = createStats({ dataDir: DATA_DIR });
+console.log(`[stats] ${stats.diagnose()}`);
 const notifier = createNotifier({
   dataDir: DATA_DIR,
   getCurrentJoke: () => getTodayJoke().then(({ dayKey, joke }) => ({ key: dayKey, joke })),
