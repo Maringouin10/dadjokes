@@ -14,7 +14,6 @@ const { createAds } = require('./ads');
 const config = require('./config');
 
 const PORT = Number(process.env.PORT) || 8002;
-const { TIME_ZONE, CHANGE_HOUR, HISTORY_DAYS, SCHEDULE_TEXT } = config;
 const DATA_DIR = process.env.DATA_DIR || path.join(__dirname, 'data');
 const STORE_FILE = path.join(DATA_DIR, 'jokes.json');
 const PUBLIC_DIR = path.join(__dirname, 'public');
@@ -39,7 +38,7 @@ const MIME = {
 
 function nyParts(date) {
   const parts = new Intl.DateTimeFormat('en-US', {
-    timeZone: TIME_ZONE,
+    timeZone: config.TIME_ZONE,
     year: 'numeric', month: '2-digit', day: '2-digit',
     hour: '2-digit', minute: '2-digit', second: '2-digit',
     hourCycle: 'h23',
@@ -62,7 +61,7 @@ function nyTimeToUtc(y, m, d, h) {
 // The joke changes once per calendar day of TIME_ZONE, at CHANGE_HOUR, every day.
 
 function changeTimeOn(y, m, d) {
-  return nyTimeToUtc(y, m, d, CHANGE_HOUR);
+  return nyTimeToUtc(y, m, d, config.CHANGE_HOUR);
 }
 
 // The current joke period: keyed by the New York date it started on, and when the next one starts.
@@ -112,9 +111,6 @@ async function fetchJson(url, headers = {}) {
   return res.json();
 }
 
-// Optional: free token from https://www.blagues-api.fr (best French source).
-const BLAGUES_API_TOKEN = process.env.BLAGUES_API_TOKEN || '';
-
 // JokeAPI's French jokes are not all well flagged: skip crude or mean ones.
 const BLOCKED_WORDS = [
   'niquer?', 'nique', 'phoqu\\p{L}*', 'putes?', 'putain', 'merde', 'cul', 'bites?', 'sexe\\p{L}*', 'nue?s?',
@@ -130,10 +126,11 @@ function acceptable(text) {
 
 const SOURCES = [
   async function blaguesApi() {
-    if (!BLAGUES_API_TOKEN) throw new Error('no BLAGUES_API_TOKEN');
+    // Optional: free token from https://www.blagues-api.fr (best French source).
+    if (!config.BLAGUES_API_TOKEN) throw new Error('no BLAGUES_API_TOKEN');
     const data = await fetchJson(
       'https://www.blagues-api.fr/api/random?disallow=dark&disallow=limit&disallow=beauf&disallow=blondes',
-      { Authorization: `Bearer ${BLAGUES_API_TOKEN}` },
+      { Authorization: `Bearer ${config.BLAGUES_API_TOKEN}` },
     );
     return {
       id: `blagues-api:${data.id}`,
@@ -213,10 +210,12 @@ async function notifyNewJoke() {
   await notifier.notifyAll(joke, dayKey);
 }
 
+let refreshTimer = null;
 function scheduleRefresh() {
   // setTimeout caps at ~24.8 days; periods last 36 h at most.
+  clearTimeout(refreshTimer);
   const delay = jokePeriod().next.getTime() - Date.now() + 1000;
-  setTimeout(async () => {
+  refreshTimer = setTimeout(async () => {
     await notifyNewJoke().catch((err) => console.error(err));
     scheduleRefresh();
   }, delay);
@@ -241,14 +240,14 @@ async function handleApi(req, res) {
   const punchline = rest.join('\n').trim() || null;
   send(res, 200, JSON.stringify({
     date: dayKey,
-    timeZone: TIME_ZONE,
+    timeZone: config.TIME_ZONE,
     joke: joke.text,
     setup: punchline ? setup : null,
     punchline,
     source: joke.source,
     sourceUrl: joke.sourceUrl,
     nextChangeAt: nextChange.toISOString(),
-    schedule: SCHEDULE_TEXT,
+    schedule: config.SCHEDULE_TEXT,
   }), {
     'Content-Type': MIME['.json'],
     'Cache-Control': 'no-store',
@@ -261,7 +260,7 @@ async function handleApi(req, res) {
 function handleHistory(req, res) {
   const { key } = jokePeriod();
   const [y, m, d] = key.split('-').map(Number);
-  const oldest = new Date(Date.UTC(y, m - 1, d - HISTORY_DAYS)).toISOString().slice(0, 10);
+  const oldest = new Date(Date.UTC(y, m - 1, d - config.HISTORY_DAYS)).toISOString().slice(0, 10);
   const jokes = Object.entries(store.days)
     .filter(([day, joke]) => day < key && day >= oldest && joke.lang === 'fr')
     .sort(([a], [b]) => (a < b ? 1 : -1))
@@ -277,7 +276,7 @@ function handleHistory(req, res) {
         sourceUrl: joke.sourceUrl,
       };
     });
-  sendJson(res, 200, { days: HISTORY_DAYS, jokes });
+  sendJson(res, 200, { days: config.HISTORY_DAYS, jokes });
 }
 
 // ---------- Subscriptions ----------
@@ -372,7 +371,7 @@ async function handleSubscriptions(req, res, pathname, searchParams) {
   const token = searchParams.get('token') || '';
   if (pathname === '/email/confirm' && req.method === 'GET') {
     return await notifier.confirmEmail(token)
-      ? sendPage(res, 200, 'Abonnement confirmé', `Tu recevras la blague plate du jour par e-mail, ${SCHEDULE_TEXT}.`)
+      ? sendPage(res, 200, 'Abonnement confirmé', `Tu recevras la blague plate du jour par e-mail, ${config.SCHEDULE_TEXT}.`)
       : sendPage(res, 404, 'Lien invalide', 'Ce lien de confirmation n’est plus valide.');
   }
   if (pathname === '/email/unsubscribe') {
@@ -392,7 +391,12 @@ async function handleStatic(req, res, pathname) {
   try {
     let data = await fsp.readFile(filePath);
     const ext = path.extname(filePath);
-    if (ext === '.html') data = data.toString('utf8').replaceAll('%SCHEDULE%', escapeHtml(SCHEDULE_TEXT));
+    if (ext === '.html') {
+      data = data.toString('utf8')
+        .replaceAll('%SCHEDULE%', escapeHtml(config.SCHEDULE_TEXT))
+        .replaceAll('%HISTORY_DAYS%', String(config.HISTORY_DAYS))
+        .replaceAll('%SITE_NAME%', escapeHtml(config.SITE_NAME));
+    }
     send(res, 200, req.method === 'HEAD' ? undefined : data, {
       'Content-Type': MIME[ext] || 'application/octet-stream',
       'Cache-Control': 'no-store',
@@ -418,13 +422,19 @@ const server = http.createServer(async (req, res) => {
   }
 });
 
+config.load(DATA_DIR);
 loadStore();
-const ads = createAds({ dataDir: DATA_DIR });
-const stats = createStats({ dataDir: DATA_DIR, ads });
-console.log(`[stats] ${stats.diagnose()}`);
 const notifier = createNotifier({
   dataDir: DATA_DIR,
   getCurrentJoke: () => getTodayJoke().then(({ dayKey, joke }) => ({ key: dayKey, joke })),
+});
+const ads = createAds({ dataDir: DATA_DIR });
+const stats = createStats({ dataDir: DATA_DIR, ads, diagnose: () => notifier.diagnose() });
+console.log(`[stats] ${stats.diagnose()}`);
+// Settings changed in /admin: the joke change time may have moved.
+config.onChange((keys) => {
+  console.log(`[config] modifié depuis /admin : ${keys.join(', ')}`);
+  if (keys.includes('TIME_ZONE') || keys.includes('CHANGE_HOUR')) scheduleRefresh();
 });
 // First start: nothing to catch up on. After downtime across a change: send the missed one.
 if (!store.notified) store.notified = jokePeriod().key;

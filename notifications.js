@@ -8,12 +8,9 @@ const path = require('node:path');
 const crypto = require('node:crypto');
 const webpush = require('web-push');
 const templates = require('./email-templates');
+const config = require('./config');
 
 const { escapeHtml, splitJoke } = templates;
-
-const RESEND_API_KEY = process.env.RESEND_API_KEY || process.env.RESEND_API || ''; // RESEND_API: common typo
-const EMAIL_FROM = process.env.EMAIL_FROM || '';
-const PUBLIC_URL = (process.env.PUBLIC_URL || '').replace(/\/+$/, '');
 
 // The server POSTs to subscription endpoints: only accept real browser push services.
 const PUSH_HOSTS = [
@@ -30,14 +27,17 @@ function createNotifier({ dataDir, getCurrentJoke }) {
   const vapidFile = path.join(dataDir, 'vapid.json');
   let subs = { push: [], emails: [] };
   let vapid = null;
+  let subject = null;
+  let vapidError = null;
 
   try {
     subs = { push: [], emails: [], ...JSON.parse(fs.readFileSync(file, 'utf8')) };
   } catch { /* first start */ }
 
-  // VAPID keys: from the environment, or generated once and kept in the data volume.
-  if (process.env.VAPID_PUBLIC_KEY && process.env.VAPID_PRIVATE_KEY) {
-    vapid = { publicKey: process.env.VAPID_PUBLIC_KEY, privateKey: process.env.VAPID_PRIVATE_KEY };
+  // VAPID keys: from the settings, or generated once and kept in the data volume.
+  // Read once: changing them needs a restart (and drops the current push subscribers).
+  if (config.VAPID_PUBLIC_KEY && config.VAPID_PRIVATE_KEY) {
+    vapid = { publicKey: config.VAPID_PUBLIC_KEY, privateKey: config.VAPID_PRIVATE_KEY };
   } else {
     try {
       vapid = JSON.parse(fs.readFileSync(vapidFile, 'utf8'));
@@ -49,21 +49,26 @@ function createNotifier({ dataDir, getCurrentJoke }) {
     }
   }
   // A bad VAPID_SUBJECT must never crash the server: web-push throws on anything but mailto:/https:.
-  const rawSubject = (process.env.VAPID_SUBJECT || '').trim();
-  const subject = /^[^\s@:]+@[^\s@]+$/.test(rawSubject) ? `mailto:${rawSubject}` // plain address
-    : rawSubject || (PUBLIC_URL.startsWith('https://') ? PUBLIC_URL : 'mailto:noreply@example.com');
-  let vapidError = null;
-  try {
-    webpush.setVapidDetails(subject, vapid.publicKey, vapid.privateKey);
-  } catch (err) {
-    vapidError = err.message;
-    console.error('[push] VAPID config error:', err.message);
+  // Applied again whenever the settings change.
+  function configureVapid() {
+    const raw = config.VAPID_SUBJECT;
+    subject = /^[^\s@:]+@[^\s@]+$/.test(raw) ? `mailto:${raw}` // plain address
+      : raw || (config.PUBLIC_URL.startsWith('https://') ? config.PUBLIC_URL : 'mailto:noreply@example.com');
+    vapidError = null;
     try {
-      webpush.setVapidDetails('mailto:noreply@example.com', vapid.publicKey, vapid.privateKey);
-    } catch { /* keys themselves are invalid: reported by diagnose(), push stays off */ }
+      webpush.setVapidDetails(subject, vapid.publicKey, vapid.privateKey);
+    } catch (err) {
+      vapidError = err.message;
+      console.error('[push] VAPID config error:', err.message);
+      try {
+        webpush.setVapidDetails('mailto:noreply@example.com', vapid.publicKey, vapid.privateKey);
+      } catch { /* keys themselves are invalid: reported by diagnose(), push stays off */ }
+    }
   }
+  configureVapid();
+  config.onChange(configureVapid);
 
-  const emailEnabled = Boolean(RESEND_API_KEY && EMAIL_FROM && PUBLIC_URL);
+  const emailEnabled = () => Boolean(config.RESEND_API_KEY && config.EMAIL_FROM && config.PUBLIC_URL);
 
   let saving = Promise.resolve();
   function save() {
@@ -144,7 +149,7 @@ function createNotifier({ dataDir, getCurrentJoke }) {
   async function resend(pathname, body) {
     const res = await fetch(`https://api.resend.com${pathname}`, {
       method: 'POST',
-      headers: { Authorization: `Bearer ${RESEND_API_KEY}`, 'Content-Type': 'application/json' },
+      headers: { Authorization: `Bearer ${config.RESEND_API_KEY}`, 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
       signal: AbortSignal.timeout(15000),
     });
@@ -160,7 +165,7 @@ function createNotifier({ dataDir, getCurrentJoke }) {
   function toResend(sub, email) {
     const unsubscribeUrl = unsubscribeUrlFor(sub);
     return {
-      from: EMAIL_FROM,
+      from: config.EMAIL_FROM,
       to: [sub.email],
       subject: email.subject,
       html: email.html,
@@ -173,11 +178,11 @@ function createNotifier({ dataDir, getCurrentJoke }) {
   }
 
   function unsubscribeUrlFor(sub) {
-    return `${PUBLIC_URL}/email/unsubscribe?token=${sub.token}`;
+    return `${config.PUBLIC_URL}/email/unsubscribe?token=${sub.token}`;
   }
 
   async function addEmail(rawEmail) {
-    if (!emailEnabled) return 'disabled';
+    if (!emailEnabled()) return 'disabled';
     const email = String(rawEmail || '').trim().toLowerCase();
     if (email.length > 254 || !EMAIL_RE.test(email)) return 'invalid';
     let sub = subs.emails.find((s) => s.email === email);
@@ -190,9 +195,9 @@ function createNotifier({ dataDir, getCurrentJoke }) {
     }
     sub.sentAt = new Date().toISOString();
     await save();
-    const confirmUrl = `${PUBLIC_URL}/email/confirm?token=${sub.token}`;
-    const message = templates.confirmEmail({ baseUrl: PUBLIC_URL, confirmUrl });
-    await resend('/emails', { from: EMAIL_FROM, to: [sub.email], ...message });
+    const confirmUrl = `${config.PUBLIC_URL}/email/confirm?token=${sub.token}`;
+    const message = templates.confirmEmail({ baseUrl: config.PUBLIC_URL, confirmUrl });
+    await resend('/emails', { from: config.EMAIL_FROM, to: [sub.email], ...message });
     return 'ok';
   }
 
@@ -206,7 +211,7 @@ function createNotifier({ dataDir, getCurrentJoke }) {
       // Welcome e-mail with today's joke; the confirmation page doesn't wait for it.
       Promise.resolve(getCurrentJoke && getCurrentJoke())
         .then(({ joke, key }) => resend('/emails', toResend(sub, templates.welcomeEmail({
-          joke, key, baseUrl: PUBLIC_URL, unsubscribeUrl: unsubscribeUrlFor(sub),
+          joke, key, baseUrl: config.PUBLIC_URL, unsubscribeUrl: unsubscribeUrlFor(sub),
         }))))
         .catch((err) => console.error('[email] welcome failed:', err.message));
     }
@@ -221,14 +226,14 @@ function createNotifier({ dataDir, getCurrentJoke }) {
   }
 
   async function emailAll(joke, key) {
-    if (!emailEnabled) return;
+    if (!emailEnabled()) return;
     const confirmed = subs.emails.filter((s) => s.confirmed);
     let sent = 0;
     for (let i = 0; i < confirmed.length; i += 100) { // Resend batch: 100 e-mails per call
       const batch = confirmed.slice(i, i + 100);
       try {
         await resend('/emails/batch', batch.map((s) => toResend(s, templates.dailyEmail({
-          joke, key, baseUrl: PUBLIC_URL, unsubscribeUrl: unsubscribeUrlFor(s),
+          joke, key, baseUrl: config.PUBLIC_URL, unsubscribeUrl: unsubscribeUrlFor(s),
         }))));
         sent += batch.length;
       } catch (err) {
@@ -245,13 +250,16 @@ function createNotifier({ dataDir, getCurrentJoke }) {
     const bad = (t) => lines.push(`  ❌ ${t}`);
     const warn = (t) => lines.push(`  ⚠️  ${t}`);
 
+    const PUBLIC_URL = config.PUBLIC_URL;
+    const RESEND_API_KEY = config.RESEND_API_KEY;
+    const EMAIL_FROM = config.EMAIL_FROM;
     if (!PUBLIC_URL) warn('PUBLIC_URL vide : nécessaire pour les e-mails (ex. https://blague.tondomaine.com)');
     else if (!/^https:\/\//.test(PUBLIC_URL)) warn(`PUBLIC_URL=${PUBLIC_URL} n’est pas en https:// : les notifications push ne marcheront pas dans le navigateur`);
     else ok(`PUBLIC_URL=${PUBLIC_URL}`);
 
     if (vapidError) bad(`Push : configuration VAPID invalide (${vapidError}). VAPID_SUBJECT doit être une adresse e-mail ou une URL https://`);
     else ok(`Push : prêt (contact ${subject}), ${subs.push.length} abonné(s)`);
-    if (!rawSubject) warn('VAPID_SUBJECT vide : mets ton adresse e-mail (Apple peut refuser les notifications sinon)');
+    if (!config.VAPID_SUBJECT) warn('VAPID_SUBJECT vide : mets ton adresse e-mail (Apple peut refuser les notifications sinon)');
 
     const missing = [['RESEND_API_KEY', RESEND_API_KEY], ['EMAIL_FROM', EMAIL_FROM], ['PUBLIC_URL', PUBLIC_URL]]
       .filter(([, v]) => !v).map(([k]) => k);
@@ -297,7 +305,7 @@ function createNotifier({ dataDir, getCurrentJoke }) {
 
   return {
     publicKey: vapid.publicKey,
-    emailEnabled,
+    get emailEnabled() { return emailEnabled(); },
     addPush,
     removePush,
     addEmail,

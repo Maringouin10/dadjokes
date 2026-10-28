@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <title>Blague du jour</title>
+  <title>%SITE_NAME%</title>
   <meta name="description" content="Une nouvelle blague plate %SCHEDULE%.">
   <meta name="theme-color" content="#f5f5f7" media="(prefers-color-scheme: light)">
   <meta name="theme-color" content="#000000" media="(prefers-color-scheme: dark)">
@@ -22,8 +22,8 @@
   <main class="page">
     <header class="header">
       <p class="eyebrow" id="date">Aujourd’hui</p>
-      <h1 class="title">La blague plate du jour</h1>
-      <button class="icon-button" id="history-open" type="button" aria-label="Historique des 7 derniers jours"
+      <h1 class="title">%SITE_NAME%</h1>
+      <button class="icon-button" id="history-open" type="button" aria-label="Historique des %HISTORY_DAYS% derniers jours"
               aria-haspopup="dialog">
         <svg viewBox="0 0 24 24" width="24" height="24" aria-hidden="true" fill="none" stroke="currentColor"
              stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -67,7 +67,7 @@
 
   <dialog class="sheet history" id="history-dialog" aria-labelledby="history-title">
     <div class="history-bar">
-      <h2 class="sheet-title" id="history-title">Les 7 derniers jours</h2>
+      <h2 class="sheet-title" id="history-title">Les %HISTORY_DAYS% derniers jours</h2>
       <button class="text-button" id="history-close" type="button">OK</button>
     </div>
     <div class="history-body">

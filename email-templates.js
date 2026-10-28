@@ -3,6 +3,8 @@
 // HTML e-mails: table layout and inline styles so they render the same in Gmail, Outlook and
 // Apple Mail, with a dark mode for the clients that support it.
 
+const config = require('./config');
+
 const FONT = "-apple-system,BlinkMacSystemFont,'SF Pro Text','Helvetica Neue',Helvetica,Arial,sans-serif";
 const C = {
   bg: '#f5f5f7', card: '#ffffff', label: '#1d1d1f', secondary: '#6e6e73', tertiary: '#86868b',
@@ -107,13 +109,13 @@ ${text(punchline, 'accent', C.accent)}`, { padding: '32px 28px' }),
   ];
 }
 
-const SCHEDULE = `Une nouvelle blague ${require('./config').SCHEDULE_TEXT}.`;
+const schedule = () => `Une nouvelle blague ${config.SCHEDULE_TEXT}.`;
 
 function footerHtml({ joke, unsubscribeUrl }) {
   const source = joke.sourceUrl
     ? `<a href="${escapeHtml(joke.sourceUrl)}" style="color:${C.tertiary};">${escapeHtml(joke.source)}</a>`
     : escapeHtml(joke.source);
-  return `Blague : ${source}<br>${SCHEDULE}<br><br>
+  return `Blague : ${source}<br>${schedule()}<br><br>
 Tu reçois cet e-mail parce que tu t’es abonné à la blague plate du jour.<br>
 <a href="${escapeHtml(unsubscribeUrl)}" style="color:${C.tertiary};">Se désabonner</a>`;
 }
@@ -130,7 +132,7 @@ function jokeText({ joke, baseUrl, revealUrl, unsubscribeUrl, intro = '' }) {
     intro,
     setup || joke.text,
     punchline ? `\nRetourne la carte : ${revealUrl}\n\n\n\n\n\n\n\nLa réponse : ${punchline}` : `\n${baseUrl}`,
-    `\n—\nBlague : ${joke.source}\n${SCHEDULE}\nSe désabonner : ${unsubscribeUrl}`,
+    `\n—\nBlague : ${joke.source}\n${schedule()}\nSe désabonner : ${unsubscribeUrl}`,
   ].filter(Boolean).join('\n');
 }
 
@@ -174,7 +176,7 @@ function confirmEmail({ baseUrl, confirmUrl }) {
   const rows = [
     card(`<p style="margin:0 0 14px;font-size:44px;line-height:48px;">😐</p>
 <p class="label" style="margin:0 0 10px;font-size:22px;line-height:28px;font-weight:700;color:${C.label};">Une blague plate par jour ?</p>
-<p class="secondary" style="margin:0 0 28px;font-size:16px;line-height:24px;color:${C.secondary};">Confirme ton adresse pour la recevoir chaque jour.<br>${SCHEDULE}</p>
+<p class="secondary" style="margin:0 0 28px;font-size:16px;line-height:24px;color:${C.secondary};">Confirme ton adresse pour la recevoir chaque jour.<br>${schedule()}</p>
 ${button(confirmUrl, 'Confirmer mon abonnement')}`),
   ];
   return {
@@ -187,7 +189,7 @@ ${button(confirmUrl, 'Confirmer mon abonnement')}`),
       footer: `Si tu n’as rien demandé, ignore simplement cet e-mail : tu ne recevras rien.<br>
 Le lien ne marche pas ? Copie cette adresse dans ton navigateur :<br><span style="word-break:break-all;">${escapeHtml(confirmUrl)}</span>`,
     }),
-    text: `Une blague plate par jour ?\n\nConfirme ton abonnement :\n${confirmUrl}\n\n${SCHEDULE}\n\nSi tu n’as rien demandé, ignore cet e-mail.`,
+    text: `Une blague plate par jour ?\n\nConfirme ton abonnement :\n${confirmUrl}\n\n${schedule()}\n\nSi tu n’as rien demandé, ignore cet e-mail.`,
   };
 }
 

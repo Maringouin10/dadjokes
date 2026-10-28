@@ -78,6 +78,10 @@ Every setting (texts, schedule, admin password, QR code, labels, posters…) com
 file next to `docker-compose.yml`. Copy `.env.example` to `.env`: it lists every variable with
 its default value. Without Docker, `node server.js` reads the same `.env`.
 
+Every setting can also be changed in **/admin → Réglages**. A value saved there wins over the
+`.env` (stored in `/data/settings.json`), applies at once, and can be reset to the `.env` value.
+Only the VAPID keys need a restart.
+
 ## Admin (`/admin`)
 
 Hidden page (no link anywhere, `noindex`), protected by `ADMIN_PASSWORD` (empty = the page does

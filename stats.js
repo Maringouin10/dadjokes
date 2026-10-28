@@ -9,9 +9,6 @@ const { escapeHtml } = require('./notifications');
 const { labelPdf, posterPdf } = require('./print');
 const config = require('./config');
 
-const { TIME_ZONE, SITE_URL, QR_URL, ADMIN_PASSWORD, HUMAN_REFERRERS } = config;
-const SESSION_TTL = config.ADMIN_SESSION_DAYS * 86400e3;
-const DASHBOARD_DAYS = config.STATS_DAYS;
 const MAX_KEYS = 300; // distinct countries/cities/sources kept per day
 const KEEP_DAYS = 400;
 
@@ -24,8 +21,13 @@ function safeEqual(a, b) {
   return crypto.timingSafeEqual(sha256(String(a)), sha256(String(b)));
 }
 
-const dayFormat = new Intl.DateTimeFormat('en-CA', { timeZone: TIME_ZONE, year: 'numeric', month: '2-digit', day: '2-digit' });
-const dayKey = (date = new Date()) => dayFormat.format(date);
+let dayFormat = null;
+function dayKey(date = new Date()) {
+  if (dayFormat?.resolvedOptions().timeZone !== config.TIME_ZONE) {
+    dayFormat = new Intl.DateTimeFormat('en-CA', { timeZone: config.TIME_ZONE, year: 'numeric', month: '2-digit', day: '2-digit' });
+  }
+  return dayFormat.format(date);
+}
 
 function isPrivateIp(ip) {
   return !ip || ip === '::1' || /^(127\.|10\.|192\.168\.|169\.254\.|172\.(1[6-9]|2\d|3[01])\.|f[cd][0-9a-f]{2}:|fe80:)/i.test(ip.replace(/^::ffff:/, ''));
@@ -59,7 +61,7 @@ function referrerHost(referrer, host) {
 function originOf({ qr, pwa, ref }) {
   if (qr) return 'Code QR';
   if (pwa) return 'Application (PWA)';
-  const engine = ref && HUMAN_REFERRERS.find((word) => ref.split('.').includes(word));
+  const engine = ref && config.HUMAN_REFERRERS.find((word) => ref.split('.').includes(word));
   return engine ? `Recherche ${engine[0].toUpperCase()}${engine.slice(1)}` : null;
 }
 
@@ -82,7 +84,7 @@ function countryName(code) {
   }
 }
 
-function createStats({ dataDir, ads }) {
+function createStats({ dataDir, ads, diagnose: diagnoseNotifications }) {
   const file = path.join(dataDir, 'stats.json');
   let data = { salt: crypto.randomBytes(16).toString('hex'), days: {}, hashes: {} };
   try {
@@ -187,21 +189,24 @@ function createStats({ dataDir, ads }) {
 
   // ---------- Admin session ----------
 
-  const sessionKey = ADMIN_PASSWORD ? sha256(`dadjokes-admin|${ADMIN_PASSWORD}`) : null;
+  // Derived from the password: changing it signs every session out.
+  const sessionKey = () => (config.ADMIN_PASSWORD ? sha256(`dadjokes-admin|${config.ADMIN_PASSWORD}`) : null);
   const failures = new Map();
 
   function sessionCookie(secure) {
-    const exp = String(Date.now() + SESSION_TTL);
-    return `adm=${exp}.${hmac(sessionKey, exp)}; Path=/admin; HttpOnly; SameSite=Strict; Max-Age=${Math.round(SESSION_TTL / 1000)}${secure ? '; Secure' : ''}`;
+    const ttl = config.ADMIN_SESSION_DAYS * 86400e3;
+    const exp = String(Date.now() + ttl);
+    return `adm=${exp}.${hmac(sessionKey(), exp)}; Path=/admin; HttpOnly; SameSite=Strict; Max-Age=${Math.round(ttl / 1000)}${secure ? '; Secure' : ''}`;
   }
 
   function isAdmin(req) {
-    if (!sessionKey) return false;
+    const key = sessionKey();
+    if (!key) return false;
     const m = /(?:^|;\s*)adm=(\d+)\.([\w-]+)/.exec(req.headers.cookie || '');
-    return Boolean(m && Number(m[1]) > Date.now() && safeEqual(m[2], hmac(sessionKey, m[1])));
+    return Boolean(m && Number(m[1]) > Date.now() && safeEqual(m[2], hmac(key, m[1])));
   }
 
-  const isSecure = (req) => req.headers['x-forwarded-proto'] === 'https' || SITE_URL.startsWith('https://') || Boolean(req.socket.encrypted);
+  const isSecure = (req) => req.headers['x-forwarded-proto'] === 'https' || config.SITE_URL.startsWith('https://') || Boolean(req.socket.encrypted);
 
   // ---------- HTTP ----------
 
@@ -269,7 +274,14 @@ table{width:100%;border-collapse:collapse}td{padding:7px 0;border-top:1px solid 
 a.button,button{display:inline-block;background:var(--accent);color:#fff;border:0;border-radius:12px;padding:10px 16px;min-height:44px;font:inherit;font-weight:600;text-decoration:none;cursor:pointer}
 a.button.alt,button.alt{background:var(--sep);color:var(--label)}summary{cursor:pointer;color:var(--secondary)}
 form.login{max-width:340px;margin:20vh auto 0}input{width:100%;min-height:44px;border:1px solid var(--sep);border-radius:12px;padding:10px 14px;font:inherit;background:var(--card);color:var(--label);margin:12px 0}
-.top{display:flex;justify-content:space-between;align-items:flex-start;gap:12px}`;
+.top{display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap}
+.settings .field{display:flex;flex-direction:column;gap:2px;padding:10px 0;border-top:1px solid var(--sep)}.settings h2+.field{border-top:0}
+.settings label{font-weight:600}.settings input,.settings textarea,.settings select{margin:4px 0}
+textarea,select{width:100%;min-height:44px;border:1px solid var(--sep);border-radius:12px;padding:10px 14px;font:inherit;background:var(--card);color:var(--label);resize:vertical}
+.help{color:var(--secondary)}code{font-size:12px}.reset{font-weight:400!important;color:var(--secondary);display:flex;gap:6px;align-items:center}.reset input{width:auto;min-height:0;margin:0}
+.tag{font-weight:500;font-size:11px;padding:1px 7px;border-radius:8px;background:var(--sep);color:var(--secondary)}.tag-admin{background:var(--accent);color:#fff}
+.notice{margin-bottom:16px}.error{color:#d70015}
+.savebar{position:sticky;bottom:0;padding:12px 0 max(12px,env(safe-area-inset-bottom));background:linear-gradient(transparent,var(--bg) 40%)}.savebar button{width:100%}`;
 
   const page = (title, inner) => `<!doctype html><html lang="fr"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1"><meta name="robots" content="noindex, nofollow">
@@ -291,6 +303,8 @@ form.login{max-width:340px;margin:20vh auto 0}input{width:100%;min-height:44px;b
 
   function dashboard() {
     today();
+    const DASHBOARD_DAYS = config.STATS_DAYS;
+    const QR_URL = config.QR_URL;
     const keys = [];
     for (let i = DASHBOARD_DAYS - 1; i >= 0; i--) keys.push(dayKey(new Date(Date.now() - i * 86400e3)));
     const days = keys.map((k) => ({ k, ...emptyDay(), ...data.days[k] }));
@@ -309,8 +323,8 @@ form.login{max-width:340px;margin:20vh auto 0}input{width:100%;min-height:44px;b
     const n = `${DASHBOARD_DAYS} j`;
 
     return page('Stats · Admin', `<main>
-<div class="top"><div><h1>Statistiques</h1><p class="sub">Visites humaines : code QR, application installée ou recherche ${escapeHtml(HUMAN_REFERRERS.join(', '))} · fuseau ${escapeHtml(TIME_ZONE)}</p></div>
-<form method="post" action="/admin/logout"><button class="alt" type="submit">Déconnexion</button></form></div>
+<div class="top"><div><h1>Statistiques</h1><p class="sub">Visites humaines : code QR, application installée ou recherche ${escapeHtml(config.HUMAN_REFERRERS.join(', '))} · fuseau ${escapeHtml(config.TIME_ZONE)}</p></div>
+<div class="actions"><a class="button alt" href="/admin/settings">Réglages</a><form method="post" action="/admin/logout"><button class="alt" type="submit">Déconnexion</button></form></div></div>
 <div class="kpis">
 <div class="kpi"><b>${fmt(sum(all, (d) => d.views))}</b><span>Visites humaines au total</span></div>
 <div class="kpi"><b>${fmt(last.views)}</b><span>Aujourd’hui · ${fmt(last.uniques)} visiteurs uniques</span></div>
@@ -341,15 +355,80 @@ ${ads ? ads.adminHtml() : ''}
 </main>`);
   }
 
+  async function settingsPage({ errors = [], saved = false } = {}) {
+    const badge = { admin: 'modifié ici', env: '.env', default: 'défaut' };
+    const groups = [...new Set(config.SETTINGS.map((s) => s.group))];
+    const field = (s) => {
+      const source = config.source(s.key);
+      const value = config.raw(s.key);
+      const id = `f-${s.key}`;
+      let input;
+      if (s.type === 'secret') {
+        input = `<input id="${id}" name="${s.key}" type="password" autocomplete="new-password" placeholder="${value ? '•••••••• (inchangé si vide)' : 'vide'}">`;
+      } else if (s.type === 'textarea') {
+        input = `<textarea id="${id}" name="${s.key}" rows="3">${escapeHtml(value)}</textarea>`;
+      } else if (s.type === 'select') {
+        input = `<select id="${id}" name="${s.key}">${Object.entries(s.options).map(([k, label]) => `<option value="${k}"${k === config[s.key] ? ' selected' : ''}>${escapeHtml(label)}</option>`).join('')}</select>`;
+      } else {
+        const num = s.type === 'number' ? ` type="number" min="${s.min}" max="${s.max}" step="${s.step || 1}"` : '';
+        input = `<input id="${id}" name="${s.key}"${num} value="${escapeHtml(value)}" autocomplete="off">`;
+      }
+      const reset = source === 'admin'
+        ? `<label class="reset"><input type="checkbox" name="reset" value="${s.key}"> revenir à ${envValueLabel(s)}</label>` : '';
+      return `<div class="field"><label for="${id}">${escapeHtml(s.label)} <small class="tag tag-${source}">${badge[source]}</small>${s.restart ? ' <small class="tag">redémarrage</small>' : ''}</label>
+${input}<small class="help"><code>${s.key}</code>${s.help ? ` · ${escapeHtml(s.help)}` : ''}</small>${reset}</div>`;
+    };
+    const envValueLabel = (s) => {
+      const base = config.baseValue(s.key);
+      if (s.type === 'secret') return base ? 'la valeur du .env' : 'vide';
+      return base ? `« ${escapeHtml(base.length > 40 ? `${base.slice(0, 40)}…` : base)} »` : 'vide';
+    };
+    let status = '';
+    try {
+      status = (await diagnoseNotifications?.() || []).map((l) => escapeHtml(l.trim())).join('<br>');
+    } catch { /* report only */ }
+
+    return page('Réglages · Admin', `<main>
+<div class="top"><div><h1>Réglages</h1><p class="sub">Une valeur modifiée ici remplace celle du <code>.env</code> et s’applique tout de suite.</p></div>
+<a class="button alt" href="/admin">← Stats</a></div>
+${saved ? '<p class="card notice">✅ Réglages enregistrés.</p>' : ''}
+${errors.length ? `<p class="card notice error" role="alert">${errors.map(escapeHtml).join('<br>')}</p>` : ''}
+<form method="post" action="/admin/settings">
+${groups.map((g) => `<div class="card settings"><h2>${escapeHtml(g)}</h2>${config.SETTINGS.filter((s) => s.group === g).map(field).join('')}</div>`).join('')}
+<div class="savebar"><button type="submit">Enregistrer</button></div>
+</form>
+${status ? `<div class="card"><h2>État des notifications</h2><p class="sub" style="margin:0">${status}</p></div>` : ''}
+</main>`);
+  }
+
+  async function saveSettings(req, res) {
+    const form = new URLSearchParams(await readBody(req, 64 * 1024));
+    const resets = new Set(form.getAll('reset'));
+    const changes = {};
+    for (const s of config.SETTINGS) {
+      if (resets.has(s.key)) { changes[s.key] = null; continue; }
+      if (!form.has(s.key)) continue;
+      const value = form.get(s.key).replace(/\r\n?/g, ' ').trim();
+      if (s.type === 'secret' && !value) continue; // empty password field: keep the current one
+      if (value !== config.raw(s.key)) changes[s.key] = value;
+    }
+    const passwordChanged = 'ADMIN_PASSWORD' in changes;
+    const errors = config.update(changes);
+    if (errors.length) return html(res, 400, await settingsPage({ errors }));
+    // A new password signs this session out too: give it a fresh cookie.
+    const cookie = passwordChanged && config.ADMIN_PASSWORD ? { 'Set-Cookie': sessionCookie(isSecure(req)) } : {};
+    return reply(res, 303, '', 'text/plain', { ...ADMIN_HEADERS, ...cookie, Location: '/admin/settings?ok' });
+  }
+
   async function handleAdmin(req, res, pathname, searchParams) {
-    if (!ADMIN_PASSWORD) return reply(res, 404, 'Not found', 'text/plain; charset=utf-8');
+    if (!config.ADMIN_PASSWORD) return reply(res, 404, 'Not found', 'text/plain; charset=utf-8');
     const ip = clientIp(req);
 
     if (pathname === '/admin/login' && req.method === 'POST') {
       const recent = (failures.get(ip) || []).filter((t) => Date.now() - t < 15 * 60e3);
       if (recent.length >= 5) return html(res, 429, loginPage('Trop d’essais, réessaie dans 15 minutes.'));
       const password = new URLSearchParams(await readBody(req)).get('password') || '';
-      if (!safeEqual(password, ADMIN_PASSWORD)) {
+      if (!safeEqual(password, config.ADMIN_PASSWORD)) {
         recent.push(Date.now());
         failures.set(ip, recent);
         if (failures.size > 5000) failures.clear();
@@ -370,6 +449,10 @@ ${ads ? ads.adminHtml() : ''}
 
     if (!isAdmin(req)) return reply(res, 404, 'Not found', 'text/plain; charset=utf-8');
 
+    if (pathname === '/admin/settings') {
+      if (req.method === 'POST') return saveSettings(req, res);
+      return html(res, 200, await settingsPage({ saved: searchParams.has('ok') }));
+    }
     if (pathname === '/admin/ads' && req.method === 'POST' && ads) {
       await ads.handleAdmin(req);
       return reply(res, 303, '', 'text/plain', { ...ADMIN_HEADERS, Location: '/admin' });
@@ -378,11 +461,11 @@ ${ads ? ads.adminHtml() : ''}
 
     if (pathname === '/admin/qr.png') {
       const size = Math.min(4096, Math.max(128, Number(searchParams.get('size')) || 2048));
-      const png = await QRCode.toBuffer(QR_URL, { errorCorrectionLevel: 'H', type: 'png', width: size, margin: 4 });
+      const png = await QRCode.toBuffer(config.QR_URL, { errorCorrectionLevel: 'H', type: 'png', width: size, margin: 4 });
       return download(res, png, 'image/png', 'blaguedujour-qr.png');
     }
     if (pathname === '/admin/qr.svg') {
-      const svg = await QRCode.toString(QR_URL, { errorCorrectionLevel: 'H', type: 'svg', margin: 4 });
+      const svg = await QRCode.toString(config.QR_URL, { errorCorrectionLevel: 'H', type: 'svg', margin: 4 });
       return download(res, svg, 'image/svg+xml', 'blaguedujour-qr.svg');
     }
     if (pathname === '/admin/label.pdf') {
@@ -409,9 +492,9 @@ ${ads ? ads.adminHtml() : ''}
   }
 
   function diagnose() {
-    if (!ADMIN_PASSWORD) return '/admin désactivé : ADMIN_PASSWORD vide';
-    if (ADMIN_PASSWORD.length < 10) return '/admin actif, mais ADMIN_PASSWORD est court (10 caractères minimum conseillés)';
-    return `/admin actif · QR vers ${QR_URL}`;
+    if (!config.ADMIN_PASSWORD) return '/admin désactivé : ADMIN_PASSWORD vide';
+    if (config.ADMIN_PASSWORD.length < 10) return '/admin actif, mais ADMIN_PASSWORD est court (10 caractères minimum conseillés)';
+    return `/admin actif · QR vers ${config.QR_URL}`;
   }
 
   return { handle, diagnose };
