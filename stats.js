@@ -6,23 +6,17 @@ const fsp = require('node:fs/promises');
 const path = require('node:path');
 const QRCode = require('qrcode');
 const { escapeHtml } = require('./notifications');
+const { labelPdf, posterPdf } = require('./print');
+const config = require('./config');
 
-const TIME_ZONE = 'America/New_York';
-const PUBLIC_URL = (process.env.PUBLIC_URL || '').replace(/\/+$/, '');
-const SITE_URL = PUBLIC_URL || 'https://blaguedujour.lol';
-const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || '';
-
-const POW_ZEROS = 4; // leading hex zeros required in sha256(token:nonce) (~65k hashes)
-const CHALLENGE_TTL = 10 * 60e3;
-const MIN_SOLVE_MS = 2000; // a challenge cannot be answered faster than this
-const SESSION_TTL = 7 * 86400e3;
+const { TIME_ZONE, SITE_URL, QR_URL, ADMIN_PASSWORD, HUMAN_REFERRERS } = config;
+const SESSION_TTL = config.ADMIN_SESSION_DAYS * 86400e3;
+const DASHBOARD_DAYS = config.STATS_DAYS;
 const MAX_KEYS = 300; // distinct countries/cities/sources kept per day
 const KEEP_DAYS = 400;
-const DASHBOARD_DAYS = 30;
 
-const BOT_UA = /bot|crawl|spider|slurp|curl|wget|python|java\/|go-http|okhttp|axios|node-fetch|headless|phantom|puppeteer|playwright|selenium|lighthouse|preview|monitor|uptime|scan|fetch|httpclient|libwww|facebookexternalhit|embedly|discord|telegram|whatsapp|skype|slack/i;
+const BOT_UA = /bot|crawl|spider|slurp|curl|wget|python|java\/|go-http|okhttp|axios|node-fetch|headless|phantom|puppeteer|playwright|selenium|lighthouse|facebookexternalhit|embedly|discord|telegram|whatsapp|skype|slack/i;
 
-const b64 = (buf) => Buffer.from(buf).toString('base64url');
 const sha256 = (data) => crypto.createHash('sha256').update(data).digest();
 const hmac = (key, data) => crypto.createHmac('sha256', key).update(data).digest('base64url');
 
@@ -51,14 +45,22 @@ function deviceOf(ua) {
   return 'Ordinateur';
 }
 
-function sourceOf(referrer, host) {
-  if (!referrer) return 'Direct';
+function referrerHost(referrer, host) {
   try {
     const name = new URL(referrer).hostname.replace(/^www\./, '');
-    return !name || name === String(host).split(':')[0].replace(/^www\./, '') ? 'Direct' : name.slice(0, 80);
+    return name && name !== String(host).split(':')[0].replace(/^www\./, '') ? name.slice(0, 80) : null;
   } catch {
-    return 'Direct';
+    return null;
   }
+}
+
+// A visit counts as human when it comes from the QR code, the installed app (PWA),
+// or a search engine listed in HUMAN_REFERRERS (google by default).
+function originOf({ qr, pwa, ref }) {
+  if (qr) return 'Code QR';
+  if (pwa) return 'Application (PWA)';
+  const engine = ref && HUMAN_REFERRERS.find((word) => ref.split('.').includes(word));
+  return engine ? `Recherche ${engine[0].toUpperCase()}${engine.slice(1)}` : null;
 }
 
 function bump(map, key, n = 1) {
@@ -80,7 +82,7 @@ function countryName(code) {
   }
 }
 
-function createStats({ dataDir }) {
+function createStats({ dataDir, ads }) {
   const file = path.join(dataDir, 'stats.json');
   let data = { salt: crypto.randomBytes(16).toString('hex'), days: {}, hashes: {} };
   try {
@@ -103,50 +105,16 @@ function createStats({ dataDir }) {
     saveTimer.unref();
   }
 
+  const emptyDay = () => ({ views: 0, uniques: 0, others: 0, bots: 0, origins: {}, countries: {}, cities: {}, sources: {}, devices: {} });
+
   function today() {
     const key = dayKey();
-    data.days[key] ||= { views: 0, uniques: 0, bots: 0, countries: {}, cities: {}, sources: {}, devices: {} };
+    data.days[key] = { ...emptyDay(), ...data.days[key] };
     const keys = Object.keys(data.days).sort();
     for (const old of keys.slice(0, Math.max(0, keys.length - KEEP_DAYS))) delete data.days[old];
-    for (const d of Object.keys(data.hashes)) if (d < key && d !== dayKey(new Date(Date.now() - 86400e3))) delete data.hashes[d];
+    const yesterday = dayKey(new Date(Date.now() - 86400e3));
+    for (const d of Object.keys(data.hashes)) if (d !== key && d !== yesterday) delete data.hashes[d];
     return data.days[key];
-  }
-
-  // ---------- Challenge (invisible captcha) ----------
-
-  const secret = crypto.randomBytes(32);
-  const used = new Map(); // token id -> expiry
-  const issuedByIp = new Map();
-  const visitsByIp = new Map();
-
-  function limited(map, ip, max, windowMs) {
-    const now = Date.now();
-    const recent = (map.get(ip) || []).filter((t) => now - t < windowMs);
-    recent.push(now);
-    map.set(ip, recent);
-    if (map.size > 10000) map.clear();
-    return recent.length > max;
-  }
-
-  function issueChallenge() {
-    const payload = b64(JSON.stringify({ i: crypto.randomBytes(8).toString('hex'), t: Date.now() }));
-    return { token: `${payload}.${hmac(secret, payload)}`, zeros: POW_ZEROS };
-  }
-
-  function verifyChallenge(token, nonce) {
-    if (typeof token !== 'string' || typeof nonce !== 'string' || nonce.length > 32) return false;
-    const [payload, sig] = token.split('.');
-    if (!payload || !sig || !safeEqual(sig, hmac(secret, payload))) return false;
-    let claim;
-    try { claim = JSON.parse(Buffer.from(payload, 'base64url').toString()); } catch { return false; }
-    const age = Date.now() - claim.t;
-    if (!(age >= MIN_SOLVE_MS && age <= CHALLENGE_TTL) || used.has(claim.i)) return false;
-    const hash = crypto.createHash('sha256').update(`${token}:${nonce}`).digest('hex');
-    if (!hash.startsWith('0'.repeat(POW_ZEROS))) return false;
-    const now = Date.now();
-    for (const [id, exp] of used) if (exp < now) used.delete(id);
-    used.set(claim.i, now + CHALLENGE_TTL);
-    return true;
   }
 
   // ---------- Geolocation ----------
@@ -176,10 +144,31 @@ function createStats({ dataDir }) {
 
   // ---------- Recording ----------
 
+  const visitsByIp = new Map();
+  function limited(ip) {
+    const now = Date.now();
+    const recent = (visitsByIp.get(ip) || []).filter((t) => now - t < 3600e3);
+    recent.push(now);
+    visitsByIp.set(ip, recent);
+    if (visitsByIp.size > 10000) visitsByIp.clear();
+    return recent.length > 60;
+  }
+
   async function record(req, body) {
     const ip = clientIp(req);
     const ua = String(req.headers['user-agent'] || '');
+    if (limited(ip)) return;
     const day = today();
+    if (!ua || BOT_UA.test(ua)) {
+      day.bots += 1;
+      return scheduleSave();
+    }
+    const ref = referrerHost(body.ref, req.headers.host);
+    const origin = originOf({ qr: body.qr === true, pwa: body.pwa === true, ref });
+    if (!origin) {
+      day.others += 1;
+      return scheduleSave();
+    }
     const { country, city } = await locate(req, ip);
     const visitor = crypto.createHash('sha256').update(`${data.salt}|${dayKey()}|${ip}|${ua}`).digest('hex').slice(0, 16);
     const seen = (data.hashes[dayKey()] ||= []);
@@ -188,15 +177,11 @@ function createStats({ dataDir }) {
       seen.push(visitor);
       day.uniques += 1;
     }
+    bump(day.origins, origin);
     bump(day.countries, country);
     if (city) bump(day.cities, `${String(city).slice(0, 60)}, ${country}`);
-    bump(day.sources, sourceOf(body.ref, req.headers.host));
+    bump(day.sources, ref || 'Direct');
     bump(day.devices, deviceOf(ua));
-    scheduleSave();
-  }
-
-  function countBot() {
-    today().bots += 1;
     scheduleSave();
   }
 
@@ -207,7 +192,7 @@ function createStats({ dataDir }) {
 
   function sessionCookie(secure) {
     const exp = String(Date.now() + SESSION_TTL);
-    return `adm=${exp}.${hmac(sessionKey, exp)}; Path=/admin; HttpOnly; SameSite=Strict; Max-Age=${SESSION_TTL / 1000}${secure ? '; Secure' : ''}`;
+    return `adm=${exp}.${hmac(sessionKey, exp)}; Path=/admin; HttpOnly; SameSite=Strict; Max-Age=${Math.round(SESSION_TTL / 1000)}${secure ? '; Secure' : ''}`;
   }
 
   function isAdmin(req) {
@@ -238,6 +223,7 @@ function createStats({ dataDir }) {
     'X-Frame-Options': 'DENY',
   };
   const html = (res, status, body, extra = {}) => reply(res, status, body, 'text/html; charset=utf-8', { ...ADMIN_HEADERS, ...extra });
+  const download = (res, body, type, name) => reply(res, 200, body, type, { ...ADMIN_HEADERS, 'Content-Disposition': `inline; filename="${name}"` });
 
   function readBody(req, limit = 4096) {
     return new Promise((resolve, reject) => {
@@ -253,26 +239,15 @@ function createStats({ dataDir }) {
     });
   }
 
-  async function handleVisit(req, res, pathname) {
-    const ua = String(req.headers['user-agent'] || '');
-    const ip = clientIp(req);
-
-    if (pathname === '/api/visit/challenge' && req.method === 'GET') {
-      if (!ua || BOT_UA.test(ua)) { countBot(); return json(res, 403, { error: 'bot' }); }
-      if (limited(issuedByIp, ip, 20, 3600e3)) return json(res, 429, { error: 'rate' });
-      return json(res, 200, issueChallenge());
-    }
-
-    if (pathname === '/api/visit' && req.method === 'POST') {
-      let body;
-      try { body = JSON.parse((await readBody(req)) || '{}'); } catch { return json(res, 400, { error: 'json' }); }
-      const human = ua && !BOT_UA.test(ua) && body.human === true
-        && !limited(visitsByIp, ip, 30, 3600e3) && verifyChallenge(body.token, body.nonce);
-      if (!human) { countBot(); return json(res, 202, { ok: false }); }
-      await record(req, { ref: typeof body.ref === 'string' ? body.ref.slice(0, 300) : '' });
-      return json(res, 200, { ok: true });
-    }
-    return false;
+  async function handleVisit(req, res) {
+    let body;
+    try { body = JSON.parse((await readBody(req)) || '{}'); } catch { return json(res, 400, { error: 'json' }); }
+    await record(req, {
+      qr: body.qr,
+      pwa: body.pwa,
+      ref: typeof body.ref === 'string' ? body.ref.slice(0, 300) : '',
+    });
+    return json(res, 200, { ok: true });
   }
 
   const css = `
@@ -285,13 +260,14 @@ h1{font-size:28px;margin:8px 0 4px}h2{font-size:17px;margin:0 0 12px}.sub{color:
 .kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;margin-bottom:16px}
 .kpi{background:var(--card);border-radius:18px;padding:16px}.kpi b{display:block;font-size:30px;line-height:1.1}.kpi span{color:var(--secondary);font-size:13px}
 .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:16px}.grid .card{margin:0}
-table{width:100%;border-collapse:collapse}td{padding:7px 0;border-top:1px solid var(--sep)}tr:first-child td{border-top:0}td:last-child{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
+table{width:100%;border-collapse:collapse}td{padding:7px 0;border-top:1px solid var(--sep);vertical-align:middle}tr:first-child td{border-top:0}td:last-child{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
 .bar{display:block;height:4px;border-radius:2px;background:var(--accent);margin-top:4px;opacity:.7}.empty{color:var(--secondary);margin:0}
 .chart{display:flex;align-items:flex-end;gap:3px;height:130px}.chart i{flex:1;background:var(--accent);border-radius:3px 3px 0 0;min-height:2px;opacity:.85}
 .axis{display:flex;justify-content:space-between;color:var(--secondary);font-size:12px;margin-top:6px}
 .qr{display:flex;flex-wrap:wrap;gap:20px;align-items:center}.qr img{width:200px;height:200px;border-radius:12px;background:#fff;padding:8px}
-a.button,button{display:inline-block;background:var(--accent);color:#fff;border:0;border-radius:12px;padding:12px 18px;min-height:44px;font:inherit;font-weight:600;text-decoration:none;cursor:pointer}
-a.button.alt,button.alt{background:var(--sep);color:var(--label)}
+.actions{display:flex;flex-wrap:wrap;gap:8px;align-items:center}.actions input{width:90px;margin:0}
+a.button,button{display:inline-block;background:var(--accent);color:#fff;border:0;border-radius:12px;padding:10px 16px;min-height:44px;font:inherit;font-weight:600;text-decoration:none;cursor:pointer}
+a.button.alt,button.alt{background:var(--sep);color:var(--label)}summary{cursor:pointer;color:var(--secondary)}
 form.login{max-width:340px;margin:20vh auto 0}input{width:100%;min-height:44px;border:1px solid var(--sep);border-radius:12px;padding:10px 14px;font:inherit;background:var(--card);color:var(--label);margin:12px 0}
 .top{display:flex;justify-content:space-between;align-items:flex-start;gap:12px}`;
 
@@ -310,15 +286,14 @@ form.login{max-width:340px;margin:20vh auto 0}input{width:100%;min-height:44px;b
     if (!rows.length) return `<p class="empty">${empty}</p>`;
     const max = rows[0][1];
     return `<table>${rows.map(([k, n]) => `<tr><td>${label(k)}<span class="bar" style="width:${Math.max(2, Math.round((n / max) * 100))}%"></span></td>`
-      + `<td>${n.toLocaleString('fr-FR')} <small style="color:var(--secondary)">${Math.round((n / total) * 100)} %</small></td></tr>`).join('')}</table>`;
+      + `<td>${n.toLocaleString('fr-FR')} <small style="color:var(--secondary)">${Math.round((n / Math.max(1, total)) * 100)} %</small></td></tr>`).join('')}</table>`;
   }
 
   function dashboard() {
     today();
     const keys = [];
     for (let i = DASHBOARD_DAYS - 1; i >= 0; i--) keys.push(dayKey(new Date(Date.now() - i * 86400e3)));
-    const empty = { views: 0, uniques: 0, bots: 0, countries: {}, cities: {}, sources: {}, devices: {} };
-    const days = keys.map((k) => ({ k, ...(data.days[k] || empty) }));
+    const days = keys.map((k) => ({ k, ...emptyDay(), ...data.days[k] }));
     const all = Object.values(data.days);
     const sum = (list, f) => list.reduce((n, d) => n + (f(d) || 0), 0);
     const merge = (field) => {
@@ -326,38 +301,47 @@ form.login{max-width:340px;margin:20vh auto 0}input{width:100%;min-height:44px;b
       for (const d of days) for (const [k, n] of Object.entries(d[field] || {})) out[k] = (out[k] || 0) + n;
       return Object.entries(out).sort((a, b) => b[1] - a[1]).slice(0, 12);
     };
-    const views30 = sum(days, (d) => d.views);
+    const viewsN = sum(days, (d) => d.views);
     const max = Math.max(1, ...days.map((d) => d.views));
     const fmt = (n) => n.toLocaleString('fr-FR');
-    const countries = merge('countries');
     const dayLabel = (k) => k.slice(5).replace('-', '/');
+    const last = days[days.length - 1];
+    const n = `${DASHBOARD_DAYS} j`;
 
     return page('Stats · Admin', `<main>
-<div class="top"><div><h1>Statistiques</h1><p class="sub">Visites humaines uniquement (captcha invisible) · jours en heure de New York</p></div>
+<div class="top"><div><h1>Statistiques</h1><p class="sub">Visites humaines : code QR, application installée ou recherche ${escapeHtml(HUMAN_REFERRERS.join(', '))} · fuseau ${escapeHtml(TIME_ZONE)}</p></div>
 <form method="post" action="/admin/logout"><button class="alt" type="submit">Déconnexion</button></form></div>
 <div class="kpis">
-<div class="kpi"><b>${fmt(sum(all, (d) => d.views))}</b><span>Visites au total</span></div>
-<div class="kpi"><b>${fmt(days[days.length - 1].views)}</b><span>Aujourd’hui · ${fmt(days[days.length - 1].uniques)} visiteurs uniques</span></div>
+<div class="kpi"><b>${fmt(sum(all, (d) => d.views))}</b><span>Visites humaines au total</span></div>
+<div class="kpi"><b>${fmt(last.views)}</b><span>Aujourd’hui · ${fmt(last.uniques)} visiteurs uniques</span></div>
 <div class="kpi"><b>${fmt(sum(days.slice(-7), (d) => d.views))}</b><span>7 derniers jours</span></div>
-<div class="kpi"><b>${fmt(views30)}</b><span>30 derniers jours · ${fmt(sum(days, (d) => d.uniques))} uniques</span></div>
-<div class="kpi"><b>${fmt(sum(all, (d) => d.bots))}</b><span>Robots écartés</span></div></div>
-<div class="card"><h2>Visites par jour</h2>
-<div class="chart" role="img" aria-label="Visites par jour sur 30 jours">${days.map((d) => `<i style="height:${Math.round((d.views / max) * 100)}%" title="${dayLabel(d.k)} : ${d.views} visites, ${d.uniques} uniques"></i>`).join('')}</div>
+<div class="kpi"><b>${fmt(viewsN)}</b><span>${n} · ${fmt(sum(days, (d) => d.uniques))} uniques</span></div>
+<div class="kpi"><b>${fmt(sum(days, (d) => d.others))}</b><span>Autres visites ${n} (non vérifiées)</span></div>
+<div class="kpi"><b>${fmt(sum(days, (d) => d.bots))}</b><span>Robots écartés ${n}</span></div></div>
+<div class="card"><h2>Visites humaines par jour</h2>
+<div class="chart" role="img" aria-label="Visites par jour sur ${DASHBOARD_DAYS} jours">${days.map((d) => `<i style="height:${Math.round((d.views / max) * 100)}%" title="${dayLabel(d.k)} : ${d.views} visites, ${d.uniques} uniques"></i>`).join('')}</div>
 <div class="axis"><span>${dayLabel(keys[0])}</span><span>max ${fmt(max)}/jour</span><span>${dayLabel(keys[keys.length - 1])}</span></div></div>
 <div class="grid">
-<div class="card"><h2>Pays (30 j)</h2>${table(countries, views30, undefined, (k) => `${flag(k)} ${escapeHtml(countryName(k))}`)}</div>
-<div class="card"><h2>Villes (30 j)</h2>${table(merge('cities'), views30, 'Pas de ville (nécessite le service de géolocalisation).')}</div>
-<div class="card"><h2>Sources (30 j)</h2>${table(merge('sources'), views30)}</div>
-<div class="card"><h2>Appareils (30 j)</h2>${table(merge('devices'), views30)}</div></div>
-<div class="card" style="margin-top:16px"><h2>Code QR</h2><div class="qr">
-<img src="/admin/qr.png?size=400" alt="Code QR vers ${escapeHtml(SITE_URL)}" width="200" height="200">
-<div><p class="sub" style="margin-bottom:12px">Mène à <b>${escapeHtml(SITE_URL)}</b><br>Correction d’erreur maximale (H), marge blanche incluse.</p>
-<a class="button" href="/admin/qr.png" download="blaguedujour-qr.png">Télécharger le PNG (2048 px)</a>
-<a class="button alt" href="/admin/qr.svg" download="blaguedujour-qr.svg">SVG (vectoriel)</a></div></div></div>
+<div class="card"><h2>Arrivés par (${n})</h2>${table(merge('origins'), viewsN)}</div>
+<div class="card"><h2>Pays (${n})</h2>${table(merge('countries'), viewsN, undefined, (k) => `${flag(k)} ${escapeHtml(countryName(k))}`)}</div>
+<div class="card"><h2>Villes (${n})</h2>${table(merge('cities'), viewsN, 'Pas de ville (nécessite le service de géolocalisation).')}</div>
+<div class="card"><h2>Sites d’origine (${n})</h2>${table(merge('sources'), viewsN)}</div>
+<div class="card"><h2>Appareils (${n})</h2>${table(merge('devices'), viewsN)}</div></div>
+${ads ? ads.adminHtml() : ''}
+<div class="card" style="margin-top:16px"><h2>Code QR et impressions</h2><div class="qr">
+<img src="/admin/qr.png?size=400" alt="Code QR vers ${escapeHtml(QR_URL)}" width="200" height="200">
+<div><p class="sub" style="margin-bottom:12px">Mène à <b>${escapeHtml(QR_URL)}</b> (les scans comptent comme « Code QR »).</p>
+<div class="actions" style="margin-bottom:10px"><a class="button" href="/admin/qr.png" download="blaguedujour-qr.png">QR PNG (2048 px)</a>
+<a class="button alt" href="/admin/qr.svg" download="blaguedujour-qr.svg">QR SVG</a></div>
+<form class="actions" method="get" action="/admin/label.pdf" style="margin-bottom:10px">
+<button type="submit">Étiquettes ${config.LABEL_HEIGHT_IN}×${config.LABEL_WIDTH_IN} po (PDF)</button>
+<label>× <input name="n" type="number" min="1" max="500" value="1" aria-label="Nombre d’étiquettes"></label></form>
+<div class="actions"><a class="button" href="/admin/poster.pdf">Affiche 4 par page (PDF, ${config.POSTER_PAGE === 'A4' ? 'A4' : 'Lettre'})</a></div>
+</div></div></div>
 </main>`);
   }
 
-  async function handleAdmin(req, res, pathname) {
+  async function handleAdmin(req, res, pathname, searchParams) {
     if (!ADMIN_PASSWORD) return reply(res, 404, 'Not found', 'text/plain; charset=utf-8');
     const ip = clientIp(req);
 
@@ -379,40 +363,55 @@ form.login{max-width:340px;margin:20vh auto 0}input{width:100%;min-height:44px;b
       return reply(res, 303, '', 'text/plain', { ...ADMIN_HEADERS, Location: '/admin', 'Set-Cookie': 'adm=; Path=/admin; Max-Age=0; HttpOnly; SameSite=Strict' });
     }
 
-    if (req.method !== 'GET' && req.method !== 'HEAD') return reply(res, 405, 'Method not allowed', 'text/plain; charset=utf-8');
     if (pathname === '/admin' || pathname === '/admin/') {
+      if (req.method !== 'GET' && req.method !== 'HEAD') return reply(res, 405, 'Method not allowed', 'text/plain; charset=utf-8');
       return isAdmin(req) ? html(res, 200, dashboard()) : html(res, 401, loginPage());
     }
 
     if (!isAdmin(req)) return reply(res, 404, 'Not found', 'text/plain; charset=utf-8');
 
+    if (pathname === '/admin/ads' && req.method === 'POST' && ads) {
+      await ads.handleAdmin(req);
+      return reply(res, 303, '', 'text/plain', { ...ADMIN_HEADERS, Location: '/admin' });
+    }
+    if (req.method !== 'GET' && req.method !== 'HEAD') return reply(res, 405, 'Method not allowed', 'text/plain; charset=utf-8');
+
     if (pathname === '/admin/qr.png') {
-      const size = Math.min(4096, Math.max(128, Number(new URLSearchParams(req.url.split('?')[1] || '').get('size')) || 2048));
-      const png = await QRCode.toBuffer(SITE_URL, { errorCorrectionLevel: 'H', type: 'png', width: size, margin: 4 });
-      return reply(res, 200, png, 'image/png', { 'X-Robots-Tag': 'noindex' });
+      const size = Math.min(4096, Math.max(128, Number(searchParams.get('size')) || 2048));
+      const png = await QRCode.toBuffer(QR_URL, { errorCorrectionLevel: 'H', type: 'png', width: size, margin: 4 });
+      return download(res, png, 'image/png', 'blaguedujour-qr.png');
     }
     if (pathname === '/admin/qr.svg') {
-      const svg = await QRCode.toString(SITE_URL, { errorCorrectionLevel: 'H', type: 'svg', margin: 4 });
-      return reply(res, 200, svg, 'image/svg+xml', { 'X-Robots-Tag': 'noindex' });
+      const svg = await QRCode.toString(QR_URL, { errorCorrectionLevel: 'H', type: 'svg', margin: 4 });
+      return download(res, svg, 'image/svg+xml', 'blaguedujour-qr.svg');
+    }
+    if (pathname === '/admin/label.pdf') {
+      const copies = Math.min(500, Math.max(1, Math.floor(Number(searchParams.get('n'))) || 1));
+      return download(res, await labelPdf(copies), 'application/pdf', 'blaguedujour-etiquettes.pdf');
+    }
+    if (pathname === '/admin/poster.pdf') {
+      return download(res, await posterPdf(), 'application/pdf', 'blaguedujour-affiche.pdf');
     }
     return reply(res, 404, 'Not found', 'text/plain; charset=utf-8');
   }
 
-  async function handle(req, res, pathname) {
+  async function handle(req, res, pathname, searchParams) {
     if (pathname === '/admin' || pathname.startsWith('/admin/')) {
-      await handleAdmin(req, res, pathname);
+      await handleAdmin(req, res, pathname, searchParams);
       return true;
     }
-    if (pathname.startsWith('/api/visit')) {
-      return (await handleVisit(req, res, pathname)) !== false;
+    if (pathname === '/api/visit' && req.method === 'POST') {
+      await handleVisit(req, res);
+      return true;
     }
+    if (ads && (await ads.handle(req, res, pathname, clientIp(req))) !== false) return true;
     return false;
   }
 
   function diagnose() {
     if (!ADMIN_PASSWORD) return '/admin désactivé : ADMIN_PASSWORD vide';
     if (ADMIN_PASSWORD.length < 10) return '/admin actif, mais ADMIN_PASSWORD est court (10 caractères minimum conseillés)';
-    return `/admin actif · QR vers ${SITE_URL}`;
+    return `/admin actif · QR vers ${QR_URL}`;
   }
 
   return { handle, diagnose };

@@ -12,6 +12,7 @@
   },
   "license": "MIT",
   "dependencies": {
+    "pdfkit": "^0.15.2",
     "qrcode": "^1.5.4",
     "web-push": "^3.6.7"
   }

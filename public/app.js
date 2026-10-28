@@ -40,7 +40,7 @@
     } else {
       els.source.append(data.source);
     }
-    els.source.append(' · Nouvelle blague chaque jour à midi (heure de New York)');
+    els.source.append(` · Nouvelle blague ${data.schedule || 'chaque jour à midi'}`);
   }
 
   function render(data) {
@@ -73,7 +73,7 @@
     clearInterval(countdownTimer);
     updateCountdown(at);
     countdownTimer = setInterval(() => updateCountdown(at), 30 * 1000);
-    // Fetch the new joke a couple of seconds after the change (noon, New York time).
+    // Fetch the new joke a couple of seconds after the change (given by nextChangeAt).
     refreshTimer = setTimeout(load, Math.max(1000, at - Date.now() + 2000));
   }
 

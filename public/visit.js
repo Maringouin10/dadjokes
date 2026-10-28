@@ -1,46 +1,24 @@
-// Counts a visit once per browser session, only after a real human gesture and a small
-// proof-of-work (invisible captcha): bots that just load the page are never counted.
+// Counts one visit per browser session. The server only counts it as human when it comes
+// from the QR code (?qr), from the installed app (PWA) or from a search engine.
 (() => {
   'use strict';
-  if (navigator.webdriver || !window.crypto?.subtle) return;
+  if (navigator.webdriver) return;
   try { if (sessionStorage.getItem('visit')) return; } catch { /* storage blocked */ }
 
-  const gestures = ['pointerdown', 'pointermove', 'touchstart', 'keydown', 'wheel', 'scroll'];
-  let started = false;
-
-  async function solve(token, zeros) {
-    const prefix = '0'.repeat(zeros);
-    const encoder = new TextEncoder();
-    for (let nonce = 0; ; nonce++) {
-      const hash = await crypto.subtle.digest('SHA-256', encoder.encode(`${token}:${nonce}`));
-      const hex = Array.from(new Uint8Array(hash.slice(0, 4)), (b) => b.toString(16).padStart(2, '0')).join('');
-      if (hex.startsWith(prefix)) return String(nonce);
-      if (nonce % 2000 === 1999) await new Promise((r) => setTimeout(r, 0));
-    }
+  const url = new URL(location.href);
+  const qr = url.searchParams.has('qr');
+  if (qr) {
+    url.searchParams.delete('qr'); // shared links must not count as scans
+    history.replaceState(history.state, '', url.pathname + url.search + url.hash);
   }
+  const pwa = matchMedia('(display-mode: standalone)').matches || navigator.standalone === true;
 
-  async function count() {
-    try {
-      const res = await fetch('/api/visit/challenge', { cache: 'no-store' });
-      if (!res.ok) return;
-      const { token, zeros } = await res.json();
-      const nonce = await solve(token, zeros);
-      const sent = await fetch('/api/visit', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ token, nonce, human: true, ref: document.referrer }),
-      });
-      if (sent.ok) {
-        try { sessionStorage.setItem('visit', '1'); } catch { /* storage blocked */ }
-      }
-    } catch { /* stats are best effort */ }
-  }
-
-  function onGesture(event) {
-    if (!event.isTrusted || started) return;
-    started = true;
-    for (const name of gestures) window.removeEventListener(name, onGesture, true);
-    count();
-  }
-  for (const name of gestures) window.addEventListener(name, onGesture, { capture: true, passive: true });
+  fetch('/api/visit', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ qr, pwa, ref: document.referrer }),
+    keepalive: true,
+  }).then((res) => {
+    if (res.ok) try { sessionStorage.setItem('visit', '1'); } catch { /* storage blocked */ }
+  }).catch(() => { /* stats are best effort */ });
 })();

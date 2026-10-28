@@ -1,14 +1,20 @@
 'use strict';
 
 const http = require('node:http');
+
 const fs = require('node:fs');
 const fsp = require('node:fs/promises');
 const path = require('node:path');
+
+// Without Docker (node server.js), read the .env file next to this script.
+try { process.loadEnvFile(path.join(__dirname, '.env')); } catch { /* no .env: use the environment */ }
 const { createNotifier, escapeHtml } = require('./notifications');
 const { createStats } = require('./stats');
+const { createAds } = require('./ads');
+const config = require('./config');
 
 const PORT = Number(process.env.PORT) || 8002;
-const TIME_ZONE = 'America/New_York';
+const { TIME_ZONE, CHANGE_HOUR, HISTORY_DAYS, SCHEDULE_TEXT } = config;
 const DATA_DIR = process.env.DATA_DIR || path.join(__dirname, 'data');
 const STORE_FILE = path.join(DATA_DIR, 'jokes.json');
 const PUBLIC_DIR = path.join(__dirname, 'public');
@@ -53,8 +59,7 @@ function nyTimeToUtc(y, m, d, h) {
   return new Date(guess);
 }
 
-// The joke changes once per New York calendar day, at noon, every day.
-const CHANGE_HOUR = 12;
+// The joke changes once per calendar day of TIME_ZONE, at CHANGE_HOUR, every day.
 
 function changeTimeOn(y, m, d) {
   return nyTimeToUtc(y, m, d, CHANGE_HOUR);
@@ -243,6 +248,7 @@ async function handleApi(req, res) {
     source: joke.source,
     sourceUrl: joke.sourceUrl,
     nextChangeAt: nextChange.toISOString(),
+    schedule: SCHEDULE_TEXT,
   }), {
     'Content-Type': MIME['.json'],
     'Cache-Control': 'no-store',
@@ -251,9 +257,7 @@ async function handleApi(req, res) {
 
 // ---------- History ----------
 
-const HISTORY_DAYS = 7;
-
-// Jokes of the previous periods, newest first, from at most 7 days before the current one.
+// Jokes of the previous periods, newest first, from at most HISTORY_DAYS days before the current one.
 function handleHistory(req, res) {
   const { key } = jokePeriod();
   const [y, m, d] = key.split('-').map(Number);
@@ -368,7 +372,7 @@ async function handleSubscriptions(req, res, pathname, searchParams) {
   const token = searchParams.get('token') || '';
   if (pathname === '/email/confirm' && req.method === 'GET') {
     return await notifier.confirmEmail(token)
-      ? sendPage(res, 200, 'Abonnement confirmé', 'Tu recevras la blague plate du jour par e-mail, chaque jour à midi (heure de New York).')
+      ? sendPage(res, 200, 'Abonnement confirmé', `Tu recevras la blague plate du jour par e-mail, ${SCHEDULE_TEXT}.`)
       : sendPage(res, 404, 'Lien invalide', 'Ce lien de confirmation n’est plus valide.');
   }
   if (pathname === '/email/unsubscribe') {
@@ -386,8 +390,9 @@ async function handleStatic(req, res, pathname) {
   const filePath = path.normalize(path.join(PUBLIC_DIR, pathname));
   if (!filePath.startsWith(PUBLIC_DIR + path.sep)) return send(res, 403, 'Forbidden');
   try {
-    const data = await fsp.readFile(filePath);
+    let data = await fsp.readFile(filePath);
     const ext = path.extname(filePath);
+    if (ext === '.html') data = data.toString('utf8').replaceAll('%SCHEDULE%', escapeHtml(SCHEDULE_TEXT));
     send(res, 200, req.method === 'HEAD' ? undefined : data, {
       'Content-Type': MIME[ext] || 'application/octet-stream',
       'Cache-Control': 'no-store',
@@ -400,7 +405,7 @@ async function handleStatic(req, res, pathname) {
 const server = http.createServer(async (req, res) => {
   try {
     const { pathname, searchParams } = new URL(req.url, 'http://localhost');
-    if (await stats.handle(req, res, pathname)) return;
+    if (await stats.handle(req, res, pathname, searchParams)) return;
     if ((await handleSubscriptions(req, res, pathname, searchParams)) !== false) return;
     if (req.method !== 'GET' && req.method !== 'HEAD') return send(res, 405, 'Method not allowed');
     if (pathname === '/api/joke') return await handleApi(req, res);
@@ -414,7 +419,8 @@ const server = http.createServer(async (req, res) => {
 });
 
 loadStore();
-const stats = createStats({ dataDir: DATA_DIR });
+const ads = createAds({ dataDir: DATA_DIR });
+const stats = createStats({ dataDir: DATA_DIR, ads });
 console.log(`[stats] ${stats.diagnose()}`);
 const notifier = createNotifier({
   dataDir: DATA_DIR,

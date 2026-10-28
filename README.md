@@ -72,17 +72,29 @@ Resend key, unverified domain, no HTTPS…):
 docker compose logs dadjokes | grep -A8 '\[config\]'
 ```
 
+## Settings
+
+Every setting (texts, schedule, admin password, QR code, labels, posters…) comes from a `.env`
+file next to `docker-compose.yml`. Copy `.env.example` to `.env`: it lists every variable with
+its default value. Without Docker, `node server.js` reads the same `.env`.
+
 ## Admin (`/admin`)
 
-Hidden page (no link anywhere, `noindex`), protected by the `ADMIN_PASSWORD` variable
-(e.g. in the `.env` next to `docker-compose.yml`; empty = the page does not exist). It shows
-visits (total, today, 7 / 30 days, uniques), countries, cities, sources, devices, and the QR code
-of the site (PNG 2048 px or SVG, error correction H) built from `PUBLIC_URL`.
+Hidden page (no link anywhere, `noindex`), protected by `ADMIN_PASSWORD` (empty = the page does
+not exist). It shows:
 
-Only humans are counted: the page sends a visit after a real gesture (touch, scroll, key…)
-plus a small proof-of-work, single-use and time-limited; known bot user agents are dropped
-and counted as "robots écartés". Country comes from the proxy header (`CF-IPCountry`…) or
-from ipwho.is; IPs are never stored (daily salted hash for the unique count).
+- **Human visits** per day, with countries, cities, sites, devices. A visit counts as human when
+  it comes from the QR code (`?qr`), from the installed app (PWA), or from a search engine listed
+  in `HUMAN_REFERRERS` (Google by default). Other visits are counted apart as "non vérifiées",
+  and known bots as "robots écartés". IPs are never stored.
+- **Label requests** made on `/ads`, with a "Livré" button once delivered.
+- **Downloads**: the QR code (PNG 2048 px, SVG), thermal labels 1 × 3 in (PDF, one label per
+  page, as many as you want) and a poster with 4 copies on one Letter/A4 sheet (PDF).
+
+## Label requests (`/ads`)
+
+For the people who stick labels around: they enter how many labels they need and their locker
+number; the request shows up in `/admin`. Stored in `/data/label-requests.json`.
 
 ## API
 

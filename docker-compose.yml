@@ -6,18 +6,10 @@ services:
       - "8002:8002"
     volumes:
       - dadjokes-data:/data
-    environment:
-      # Optionnel : clé gratuite sur https://www.blagues-api.fr (meilleure source FR)
-      - BLAGUES_API_TOKEN=${BLAGUES_API_TOKEN:-}
-      # Adresse publique du site, en HTTPS (liens des e-mails ; nécessaire aux notifications push)
-      - PUBLIC_URL=${PUBLIC_URL:-}
-      # E-mails via Resend (https://resend.com) : clé API et expéditeur d'un domaine vérifié
-      - RESEND_API_KEY=${RESEND_API_KEY:-${RESEND_API:-}}
-      - EMAIL_FROM=${EMAIL_FROM:-}
-      # Ton adresse e-mail, contact pour les services de push (ex. toi@exemple.com)
-      # Mot de passe de la page /admin (stats + code QR). Vide = page désactivée
-      - ADMIN_PASSWORD=${ADMIN_PASSWORD:-}
-      - VAPID_SUBJECT=${VAPID_SUBJECT:-}
+    # Tous les réglages viennent du fichier .env (voir .env.example pour la liste complète)
+    env_file:
+      - path: .env
+        required: false
     restart: unless-stopped
 
 volumes:

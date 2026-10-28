@@ -107,7 +107,7 @@ ${text(punchline, 'accent', C.accent)}`, { padding: '32px 28px' }),
   ];
 }
 
-const SCHEDULE = 'Une nouvelle blague chaque jour à midi (heure de New York).';
+const SCHEDULE = `Une nouvelle blague ${require('./config').SCHEDULE_TEXT}.`;
 
 function footerHtml({ joke, unsubscribeUrl }) {
   const source = joke.sourceUrl
