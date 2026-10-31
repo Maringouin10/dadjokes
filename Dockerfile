@@ -9,6 +9,7 @@ COPY package.json package-lock.json ./
 RUN npm ci --omit=dev && npm cache clean --force
 COPY server.js config.js notifications.js email-templates.js stats.js ads.js print.js fallback-jokes.json ./
 COPY public ./public
+COPY fonts ./fonts
 
 RUN mkdir -p /data && chown node:node /data
 USER node

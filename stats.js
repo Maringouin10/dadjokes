@@ -6,7 +6,7 @@ const fsp = require('node:fs/promises');
 const path = require('node:path');
 const QRCode = require('qrcode');
 const { escapeHtml } = require('./notifications');
-const { labelPdf, posterPdf } = require('./print');
+const { labelPdf, labelPng, posterPdf } = require('./print');
 const config = require('./config');
 
 const MAX_KEYS = 300; // distinct countries/cities/sources kept per day
@@ -350,6 +350,7 @@ ${ads ? ads.adminHtml() : ''}
 <form class="actions" method="get" action="/admin/label.pdf" style="margin-bottom:10px">
 <button type="submit">Étiquettes ${config.LABEL_HEIGHT_IN}×${config.LABEL_WIDTH_IN} po (PDF)</button>
 <label>× <input name="n" type="number" min="1" max="500" value="1" aria-label="Nombre d’étiquettes"></label></form>
+<div class="actions" style="margin-bottom:10px"><a class="button alt" href="/admin/label.png" download="blaguedujour-etiquette.png">Étiquette ${config.LABEL_HEIGHT_IN}×${config.LABEL_WIDTH_IN} po (PNG, 300 dpi)</a></div>
 <div class="actions"><a class="button" href="/admin/poster.pdf">Affiche 4 par page (PDF, ${config.POSTER_PAGE === 'A4' ? 'A4' : 'Lettre'})</a></div>
 </div></div></div>
 </main>`);
@@ -471,6 +472,10 @@ ${status ? `<div class="card"><h2>État des notifications</h2><p class="sub" sty
     if (pathname === '/admin/label.pdf') {
       const copies = Math.min(500, Math.max(1, Math.floor(Number(searchParams.get('n'))) || 1));
       return download(res, await labelPdf(copies), 'application/pdf', 'blaguedujour-etiquettes.pdf');
+    }
+    if (pathname === '/admin/label.png') {
+      const dpi = Math.min(1200, Math.max(100, Math.floor(Number(searchParams.get('dpi'))) || 300));
+      return download(res, labelPng(dpi), 'image/png', 'blaguedujour-etiquette.png');
     }
     if (pathname === '/admin/poster.pdf') {
       return download(res, await posterPdf(), 'application/pdf', 'blaguedujour-affiche.pdf');

@@ -1,7 +1,10 @@
 'use strict';
 
+const path = require('path');
 const PDFDocument = require('pdfkit');
 const QRCode = require('qrcode');
+const fontkit = require('fontkit');
+const { Resvg } = require('@resvg/resvg-js');
 const config = require('./config');
 
 const INCH = 72;
@@ -127,4 +130,117 @@ function posterPdf() {
   return toBuffer(doc);
 }
 
-module.exports = { labelPdf, posterPdf };
+// --- PNG label -------------------------------------------------------------------------------
+// Same layout as the PDF, drawn as an SVG with the text turned into paths, then rasterized.
+// Liberation Sans has the same metrics as Helvetica, so the lines break like in the PDF.
+
+const FONTS = {
+  regular: fontkit.openSync(path.join(__dirname, 'fonts', 'LiberationSans-Regular.ttf')),
+  bold: fontkit.openSync(path.join(__dirname, 'fonts', 'LiberationSans-Bold.ttf')),
+};
+const LINE_HEIGHT = 1.15; // Helvetica's line height in pdfkit (ascender − descender)
+
+const textWidth = (font, text, size) => (font.layout(text).advanceWidth * size) / font.unitsPerEm;
+
+// Word wrap like pdfkit: explicit line breaks are kept, a word too long for the line is cut.
+function wrap(font, text, size, width) {
+  const lines = [];
+  for (const paragraph of String(text).split('\n')) {
+    let line = '';
+    for (const word of paragraph.split(/\s+/).filter(Boolean)) {
+      const next = line ? `${line} ${word}` : word;
+      if (!line || textWidth(font, next, size) <= width) { line = next; continue; }
+      lines.push(line);
+      line = word;
+    }
+    while (line && textWidth(font, line, size) > width && line.length > 1) {
+      let cut = line.length - 1;
+      while (cut > 1 && textWidth(font, line.slice(0, cut), size) > width) cut--;
+      lines.push(line.slice(0, cut));
+      line = line.slice(cut);
+    }
+    lines.push(line);
+  }
+  return lines;
+}
+
+const blockHeight = (font, text, size, width) => wrap(font, text, size, width).length * size * LINE_HEIGHT;
+
+function fitBlock(font, text, width, height, max, min) {
+  for (let size = max; size > min; size -= 0.5) {
+    if (blockHeight(font, text, size, width) <= height) return size;
+  }
+  return min;
+}
+
+// SVG paths for the text block, top-left at (x, y).
+function textPaths(font, text, size, x, y, width) {
+  const scale = size / font.unitsPerEm;
+  const ascent = (font.ascent / font.unitsPerEm) * size;
+  return wrap(font, text, size, width).map((line, i) => {
+    const run = font.layout(line);
+    let pen = 0;
+    const d = run.glyphs.map((glyph, g) => {
+      const pos = run.positions[g];
+      const out = `<path transform="translate(${pen + pos.xOffset} ${pos.yOffset})" d="${glyph.path.toSVG()}"/>`;
+      pen += pos.xAdvance;
+      return out;
+    }).join('');
+    const baseline = y + i * size * LINE_HEIGHT + ascent;
+    return `<g transform="translate(${x} ${baseline}) scale(${scale} ${-scale})">${d}</g>`;
+  }).join('');
+}
+
+function qrRects(text, x, y, size, ecc) {
+  const { modules } = QRCode.create(text, { errorCorrectionLevel: ecc });
+  const n = modules.size;
+  const cell = size / n;
+  let d = '';
+  for (let row = 0; row < n; row++) {
+    for (let col = 0; col < n; col++) {
+      if (!modules.get(row, col)) continue;
+      let end = col;
+      while (end + 1 < n && modules.get(row, end + 1)) end++;
+      d += `M${x + col * cell} ${y + row * cell}h${(end - col + 1) * cell}v${cell}h${-(end - col + 1) * cell}z`;
+      col = end;
+    }
+  }
+  return `<path d="${d}" shape-rendering="crispEdges"/>`;
+}
+
+function labelSvg() {
+  const w = config.LABEL_WIDTH_IN * INCH;
+  const h = config.LABEL_HEIGHT_IN * INCH;
+  const pad = Math.min(w, h) * 0.08;
+  const qr = Math.min(h, w * 0.45) - 2 * pad;
+  const textX = pad + qr + pad * 1.4;
+  const textW = w - textX - pad;
+  const textH = h - 2 * pad;
+  const { regular, bold } = FONTS;
+
+  const titleSize = fitBlock(bold, config.LABEL_TITLE, textW, textH * 0.38, h * 0.2, 5);
+  const titleH = blockHeight(bold, config.LABEL_TITLE, titleSize, textW);
+  const bodySize = fitBlock(regular, config.LABEL_TEXT, textW, textH * 0.42, Math.min(titleSize * 0.8, h * 0.13), 4);
+  const bodyH = blockHeight(regular, config.LABEL_TEXT, bodySize, textW);
+  const urlSize = fitBlock(bold, config.QR_TEXT, textW, textH * 0.2, Math.min(bodySize * 1.1, h * 0.13), 4);
+  const urlH = blockHeight(bold, config.QR_TEXT, urlSize, textW);
+  const gap = Math.max(1, (textH - titleH - bodyH - urlH) / 4);
+
+  let y = pad + gap;
+  const title = textPaths(bold, config.LABEL_TITLE, titleSize, textX, y, textW);
+  y += titleH + gap;
+  const body = textPaths(regular, config.LABEL_TEXT, bodySize, textX, y, textW);
+  y += bodyH + gap;
+  const url = textPaths(bold, config.QR_TEXT, urlSize, textX, y, textW);
+
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}">
+<rect width="${w}" height="${h}" fill="#fff"/><g fill="#000">${qrRects(config.QR_URL, pad, (h - qr) / 2, qr, 'M')}${title}${body}${url}</g></svg>`;
+}
+
+// One label as a PNG at `dpi` (300 by default: 900 × 300 px for a 3 × 1 in label).
+function labelPng(dpi = 300) {
+  const width = Math.round(config.LABEL_WIDTH_IN * dpi);
+  return new Resvg(labelSvg(), { fitTo: { mode: 'width', value: width }, font: { loadSystemFonts: false } }).render().asPng();
+}
+
+module.exports = { labelPdf, labelPng, posterPdf };

@@ -93,7 +93,7 @@ not exist). It shows:
   and known bots as "robots écartés". IPs are never stored.
 - **Label requests** made on `/ads`, with a "Livré" button once delivered.
 - **Downloads**: the QR code (PNG 2048 px, SVG), thermal labels 1 × 3 in (PDF, one label per
-  page, as many as you want) and a poster with 4 copies on one Letter/A4 sheet (PDF).
+  page, as many as you want; or one label as a 300 dpi PNG, `?dpi=` to change it) and a poster with 4 copies on one Letter/A4 sheet (PDF).
 
 ## Label requests (`/ads`)
 
