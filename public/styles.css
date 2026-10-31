@@ -1,26 +1,31 @@
 :root {
-  --bg: #f5f5f7;
+  /* Palette: Seal Blue #DBF2FC, Navy Blue #072D59, Crimson Pink #FD6E88 */
+  --bg: #dbf2fc;
   --card: #ffffff;
-  --label: #1d1d1f;
-  --secondary: #6e6e73;
-  --tertiary: #86868b;
-  --accent: #0071e3;
-  --accent-pressed: #0062c4;
-  --separator: rgba(0, 0, 0, 0.08);
-  --shadow: 0 1px 2px rgba(0, 0, 0, 0.04), 0 8px 28px rgba(0, 0, 0, 0.06);
+  --label: #072d59;
+  --secondary: #4a6385;
+  --tertiary: #6f86a3;
+  --accent: #fd6e88;
+  --accent-pressed: #f4506e;
+  --accent-text: #d6405e;
+  --on-accent: #072d59;
+  --separator: rgba(7, 45, 89, 0.1);
+  --shadow: 0 1px 2px rgba(7, 45, 89, 0.05), 0 8px 28px rgba(7, 45, 89, 0.08);
   color-scheme: light dark;
 }
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --bg: #000000;
-    --card: #1c1c1e;
-    --label: #f5f5f7;
-    --secondary: #a1a1a6;
-    --tertiary: #8e8e93;
-    --accent: #2997ff;
-    --accent-pressed: #4aa8ff;
-    --separator: rgba(255, 255, 255, 0.1);
+    --bg: #041c38;
+    --card: #072d59;
+    --label: #dbf2fc;
+    --secondary: #a6c3dc;
+    --tertiary: #7f9dbb;
+    --accent: #fd6e88;
+    --accent-pressed: #ff8ca1;
+    --accent-text: #fd6e88;
+    --on-accent: #072d59;
+    --separator: rgba(219, 242, 252, 0.12);
     --shadow: none;
   }
 }
@@ -126,7 +131,7 @@ body {
   border: 0;
   border-radius: 980px;
   background: var(--accent);
-  color: #fff;
+  color: var(--on-accent);
   font: inherit;
   font-size: 1.0625rem;
   font-weight: 500;
@@ -213,7 +218,7 @@ body {
 .face::before { content: ""; height: 1.2em; }
 
 .back { transform: rotateY(180deg); }
-.back .joke { color: var(--accent); }
+.back .joke { color: var(--accent-text); }
 
 .hint {
   margin: 0;
@@ -264,14 +269,14 @@ body {
 
 .button.secondary {
   background: var(--fill);
-  color: var(--accent);
+  color: var(--accent-text);
 }
 .button.secondary:hover { background: var(--fill-pressed); }
 .button.secondary[aria-pressed="true"] { color: var(--label); }
 
-:root { --fill: rgba(120, 120, 128, 0.12); --fill-pressed: rgba(120, 120, 128, 0.2); }
+:root { --fill: rgba(7, 45, 89, 0.08); --fill-pressed: rgba(7, 45, 89, 0.14); }
 @media (prefers-color-scheme: dark) {
-  :root { --fill: rgba(120, 120, 128, 0.24); --fill-pressed: rgba(120, 120, 128, 0.32); }
+  :root { --fill: rgba(219, 242, 252, 0.12); --fill-pressed: rgba(219, 242, 252, 0.2); }
 }
 
 @media (max-width: 440px) {
@@ -290,10 +295,10 @@ body {
   border-radius: 20px;
   background: var(--card);
   color: var(--label);
-  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.25);
+  box-shadow: 0 20px 60px rgba(7, 45, 89, 0.25);
 }
 
-.sheet::backdrop { background: rgba(0, 0, 0, 0.35); -webkit-backdrop-filter: blur(6px); backdrop-filter: blur(6px); }
+.sheet::backdrop { background: rgba(7, 45, 89, 0.35); -webkit-backdrop-filter: blur(6px); backdrop-filter: blur(6px); }
 
 .sheet[open] { animation: sheet-in 0.3s cubic-bezier(0.2, 0.8, 0.2, 1); }
 
@@ -319,7 +324,7 @@ body {
 .field:focus-visible { outline: 3px solid color-mix(in srgb, var(--accent) 45%, transparent); outline-offset: 0; }
 
 .sheet-status { margin: -4px 0 0; min-height: 1.2em; font-size: 0.875rem; color: var(--secondary); }
-.sheet-status.error { color: #ff3b30; }
+.sheet-status.error { color: var(--accent-text); }
 
 .sheet-actions { display: flex; justify-content: flex-end; gap: 8px; }
 
@@ -351,7 +356,7 @@ a.button { display: inline-flex; align-items: center; justify-content: center; t
   border: 0;
   border-radius: 50%;
   background: transparent;
-  color: var(--accent);
+  color: var(--accent-text);
   cursor: pointer;
   -webkit-tap-highlight-color: transparent;
 }
@@ -387,7 +392,7 @@ a.button { display: inline-flex; align-items: center; justify-content: center; t
   padding: 0 8px;
   border: 0;
   background: transparent;
-  color: var(--accent);
+  color: var(--accent-text);
   font: inherit;
   font-size: 1.0625rem;
   font-weight: 600;
@@ -422,7 +427,7 @@ a.button { display: inline-flex; align-items: center; justify-content: center; t
   align-items: center;
   min-height: 44px;
   margin: -6px 0;
-  color: var(--accent);
+  color: var(--accent-text);
   font-size: 0.9375rem;
   font-weight: 500;
   cursor: pointer;
@@ -434,7 +439,7 @@ a.button { display: inline-flex; align-items: center; justify-content: center; t
 
 .history-answer {
   margin: 0;
-  color: var(--accent);
+  color: var(--accent-text);
   font-size: 1.0625rem;
   font-weight: 600;
   line-height: 1.4;

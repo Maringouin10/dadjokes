@@ -256,8 +256,8 @@ function createStats({ dataDir, ads, diagnose: diagnoseNotifications }) {
   }
 
   const css = `
-:root{--bg:#f5f5f7;--card:#fff;--label:#1d1d1f;--secondary:#6e6e73;--accent:#0071e3;--sep:rgba(0,0,0,.08);color-scheme:light dark}
-@media(prefers-color-scheme:dark){:root{--bg:#000;--card:#1c1c1e;--label:#f5f5f7;--secondary:#a1a1a6;--accent:#2997ff;--sep:rgba(255,255,255,.1)}}
+:root{--bg:#dbf2fc;--card:#fff;--label:#072d59;--secondary:#4a6385;--accent:#fd6e88;--on-accent:#072d59;--sep:rgba(7,45,89,.1);color-scheme:light dark}
+@media(prefers-color-scheme:dark){:root{--bg:#041c38;--card:#072d59;--label:#dbf2fc;--secondary:#a6c3dc;--accent:#fd6e88;--sep:rgba(219,242,252,.12)}}
 *{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--label);font:16px/1.45 -apple-system,BlinkMacSystemFont,"SF Pro Text","Segoe UI",Roboto,sans-serif;-webkit-text-size-adjust:100%}
 main{max-width:960px;margin:0 auto;padding:max(20px,env(safe-area-inset-top)) 16px 48px}
 h1{font-size:28px;margin:8px 0 4px}h2{font-size:17px;margin:0 0 12px}.sub{color:var(--secondary);margin:0 0 20px}
@@ -271,7 +271,7 @@ table{width:100%;border-collapse:collapse}td{padding:7px 0;border-top:1px solid 
 .axis{display:flex;justify-content:space-between;color:var(--secondary);font-size:12px;margin-top:6px}
 .qr{display:flex;flex-wrap:wrap;gap:20px;align-items:center}.qr img{width:200px;height:200px;border-radius:12px;background:#fff;padding:8px}
 .actions{display:flex;flex-wrap:wrap;gap:8px;align-items:center}.actions input{width:90px;margin:0}
-a.button,button{display:inline-block;background:var(--accent);color:#fff;border:0;border-radius:12px;padding:10px 16px;min-height:44px;font:inherit;font-weight:600;text-decoration:none;cursor:pointer}
+a.button,button{display:inline-block;background:var(--accent);color:var(--on-accent);border:0;border-radius:12px;padding:10px 16px;min-height:44px;font:inherit;font-weight:600;text-decoration:none;cursor:pointer}
 a.button.alt,button.alt{background:var(--sep);color:var(--label)}summary{cursor:pointer;color:var(--secondary)}
 form.login{max-width:340px;margin:20vh auto 0}input{width:100%;min-height:44px;border:1px solid var(--sep);border-radius:12px;padding:10px 14px;font:inherit;background:var(--card);color:var(--label);margin:12px 0}
 .top{display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap}
@@ -279,7 +279,7 @@ form.login{max-width:340px;margin:20vh auto 0}input{width:100%;min-height:44px;b
 .settings label{font-weight:600}.settings input,.settings textarea,.settings select{margin:4px 0}
 textarea,select{width:100%;min-height:44px;border:1px solid var(--sep);border-radius:12px;padding:10px 14px;font:inherit;background:var(--card);color:var(--label);resize:vertical}
 .help{color:var(--secondary)}code{font-size:12px}.reset{font-weight:400!important;color:var(--secondary);display:flex;gap:6px;align-items:center}.reset input{width:auto;min-height:0;margin:0}
-.tag{font-weight:500;font-size:11px;padding:1px 7px;border-radius:8px;background:var(--sep);color:var(--secondary)}.tag-admin{background:var(--accent);color:#fff}
+.tag{font-weight:500;font-size:11px;padding:1px 7px;border-radius:8px;background:var(--sep);color:var(--secondary)}.tag-admin{background:var(--accent);color:var(--on-accent)}
 .notice{margin-bottom:16px}.error{color:#d70015}
 .savebar{position:sticky;bottom:0;padding:12px 0 max(12px,env(safe-area-inset-bottom));background:linear-gradient(transparent,var(--bg) 40%)}.savebar button{width:100%}`;
 

@@ -7,8 +7,8 @@ const config = require('./config');
 
 const FONT = "-apple-system,BlinkMacSystemFont,'SF Pro Text','Helvetica Neue',Helvetica,Arial,sans-serif";
 const C = {
-  bg: '#f5f5f7', card: '#ffffff', label: '#1d1d1f', secondary: '#6e6e73', tertiary: '#86868b',
-  accent: '#0071e3', separator: '#e5e5ea',
+  bg: '#dbf2fc', card: '#ffffff', label: '#072d59', secondary: '#4a6385', tertiary: '#6f86a3',
+  accent: '#fd6e88', accentText: '#d6405e', onAccent: '#072d59', separator: '#c9dceb',
 };
 
 function escapeHtml(text) {
@@ -33,7 +33,7 @@ function formatDay(key) {
 function button(href, label) {
   return `<table role="presentation" cellpadding="0" cellspacing="0" border="0" align="center" style="margin:0 auto;">
 <tr><td class="btn" align="center" bgcolor="${C.accent}" style="border-radius:980px;background:${C.accent};">
-<a href="${escapeHtml(href)}" style="display:inline-block;padding:14px 28px;font-family:${FONT};font-size:17px;font-weight:600;line-height:20px;color:#ffffff;text-decoration:none;border-radius:980px;">${label}</a>
+<a href="${escapeHtml(href)}" style="display:inline-block;padding:14px 28px;font-family:${FONT};font-size:17px;font-weight:600;line-height:20px;color:${C.onAccent};text-decoration:none;border-radius:980px;">${label}</a>
 </td></tr></table>`;
 }
 
@@ -59,14 +59,14 @@ function layout({ baseUrl, preheader, eyebrow, rows, footer }) {
 <title>La blague plate du jour</title>
 <style>
   body { margin:0; padding:0; -webkit-text-size-adjust:100%; }
-  a { color:${C.accent}; }
+  a { color:${C.accentText}; }
   @media (prefers-color-scheme: dark) {
-    .bg { background:#000000 !important; }
-    .card { background:#1c1c1e !important; }
-    .label { color:#f5f5f7 !important; }
-    .secondary { color:#a1a1a6 !important; }
-    .accent { color:#2997ff !important; }
-    .btn { background:#2997ff !important; }
+    .bg { background:#041c38 !important; }
+    .card { background:#072d59 !important; }
+    .label { color:#dbf2fc !important; }
+    .secondary { color:#a6c3dc !important; }
+    .accent { color:#fd6e88 !important; }
+    .btn { background:#fd6e88 !important; }
   }
   @media (max-width: 480px) {
     .joke { font-size:24px !important; line-height:31px !important; }
@@ -105,7 +105,7 @@ function jokeRows({ joke, revealUrl, revealLabel }) {
     `<tr><td align="center" class="secondary" style="font-size:13px;line-height:18px;color:${C.tertiary};">Pas envie de cliquer ? La réponse est tout en bas 👇</td></tr>`,
     spacer(260), // keeps the punchline out of sight until you scroll
     card(`<p class="secondary" style="margin:0 0 10px;font-size:12px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;color:${C.tertiary};">La réponse</p>
-${text(punchline, 'accent', C.accent)}`, { padding: '32px 28px' }),
+${text(punchline, 'accent', C.accentText)}`, { padding: '32px 28px' }),
   ];
 }
 
