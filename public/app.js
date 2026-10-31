@@ -323,9 +323,16 @@
     return Uint8Array.from(atob(padded), (c) => c.charCodeAt(0));
   }
 
+  const notifyButton = $('notify');
+  const notifyDialog = $('notify-dialog');
+  const pushStatus = $('push-status');
+  const say = (message) => { pushStatus.textContent = message; };
+
   function setPushState(on) {
     pushButton.setAttribute('aria-pressed', String(on));
-    pushButton.textContent = on ? 'Notifications ✓' : 'Notifications';
+    $('push-state').textContent = on ? 'Activées ✓ · touche pour désactiver' : 'Sur cet appareil';
+    notifyButton.setAttribute('aria-pressed', String(on));
+    notifyButton.textContent = on ? 'Notifications ✓' : 'Notifications';
   }
 
   // Filled in at load time, so a click can ask for permission straight away:
@@ -343,11 +350,11 @@
 
   async function togglePush() {
     if (!window.isSecureContext) {
-      toast('Les notifications demandent une connexion sécurisée (HTTPS).');
+      say('Les notifications demandent une connexion sécurisée (HTTPS).');
       return;
     }
     if (!pushSupported) {
-      toast(isIos && !isStandalone
+      say(isIos && !isStandalone
         ? 'Sur iPhone : Partager → « Sur l’écran d’accueil », puis ouvre l’appli pour activer les notifications.'
         : 'Ce navigateur ne gère pas les notifications.');
       return;
@@ -360,12 +367,12 @@
         setPushState(false);
         await postJson('/api/push/unsubscribe', { endpoint: old.endpoint }).catch(() => {});
         await old.unsubscribe().catch(() => {});
-        toast('Notifications désactivées');
+        say('Notifications désactivées');
         return;
       }
       const permission = await Notification.requestPermission(); // first await: still inside the click
       if (permission !== 'granted') {
-        toast('Notifications refusées. Tu peux les autoriser dans les réglages du navigateur.');
+        say('Notifications refusées. Tu peux les autoriser dans les réglages du navigateur.');
         return;
       }
       if (!config) throw new Error('config not loaded');
@@ -377,10 +384,10 @@
       await postJson('/api/push/subscribe', { subscription: sub.toJSON() });
       pushSub = sub;
       setPushState(true);
-      toast('Notifications activées');
+      say('Notifications activées');
     } catch (err) {
       console.error(err);
-      toast(Notification.permission === 'denied'
+      say(Notification.permission === 'denied'
         ? 'Notifications bloquées. Autorise-les dans les réglages du navigateur.'
         : `Impossible d’activer les notifications : ${err.message}`);
     } finally {
@@ -393,7 +400,7 @@
   // ---------- E-mail ----------
 
   const emailButton = $('email');
-  const dialog = $('email-dialog');
+  const dialog = notifyDialog;
   const form = $('email-form');
   const input = $('email-input');
   const status = $('email-status');
@@ -404,14 +411,27 @@
     status.classList.toggle('error', error);
   }
 
+  const choice = $('notify-choice');
+  const showChoice = () => { form.hidden = true; choice.hidden = false; };
+
+  notifyButton.addEventListener('click', () => {
+    say('');
+    showChoice();
+    dialog.showModal();
+  });
+  $('notify-close').addEventListener('click', () => dialog.close());
+
   emailButton.addEventListener('click', () => {
     setStatus('');
     submit.hidden = false;
     input.disabled = false;
-    $('email-cancel').textContent = 'Annuler';
-    dialog.showModal();
+    $('email-cancel').textContent = 'Retour';
+    choice.hidden = true;
+    form.hidden = false;
+    input.focus();
   });
-  $('email-cancel').addEventListener('click', () => dialog.close());
+  // "Retour" goes back to the choice; once subscribed, the same button closes the sheet.
+  $('email-cancel').addEventListener('click', () => (submit.hidden ? dialog.close() : showChoice()));
   dialog.addEventListener('click', (e) => { if (e.target === dialog) dialog.close(); }); // tap outside
 
   form.addEventListener('submit', async (e) => {
@@ -440,6 +460,7 @@
     emailButton.hidden = !config.email;
     // Shown where push works, or with an explanation where it could (HTTPS, iPhone home screen).
     pushButton.hidden = !(pushSupported || (isIos && !isStandalone) || !window.isSecureContext);
+    notifyButton.hidden = pushButton.hidden && emailButton.hidden;
     if (pushSupported && window.isSecureContext) {
       navigator.serviceWorker.ready
         .then((reg) => reg.pushManager.getSubscription())
@@ -467,6 +488,55 @@
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', () => navigator.serviceWorker.register('/sw.js').catch(() => {}));
   }
+
+  // ---------- Install pop-up (phones only) ----------
+  // Shown once in a while on phones, outside the installed app. ✕ hides it for 30 days.
+
+  const install = $('install');
+  const installAdd = $('install-add');
+  const DISMISS_KEY = 'install-dismissed';
+  const DISMISS_DAYS = 30;
+  const isPhone = isIos || /Android|Mobi/i.test(navigator.userAgent);
+  let installEvent = null;
+
+  function dismissedRecently() {
+    try { return Date.now() - Number(localStorage.getItem(DISMISS_KEY) || 0) < DISMISS_DAYS * 86400e3; } catch { return false; }
+  }
+
+  function hideInstall(remember) {
+    install.hidden = true;
+    if (remember) try { localStorage.setItem(DISMISS_KEY, String(Date.now())); } catch { /* storage blocked */ }
+  }
+
+  function showInstall() {
+    if (!isPhone || isStandalone || dismissedRecently() || !install.hidden) return;
+    if (installEvent) {
+      $('install-help').textContent = 'Ajoute la blague à ton écran d’accueil, en un geste.';
+      installAdd.hidden = false;
+    } else if (isIos) {
+      $('install-help').textContent = 'Touche Partager, puis « Sur l’écran d’accueil ». Tu pourras aussi activer les notifications.';
+    } else {
+      $('install-help').textContent = 'Menu ⋮ du navigateur, puis « Ajouter à l’écran d’accueil ».';
+    }
+    install.hidden = false;
+  }
+
+  // Chrome/Edge/Samsung on Android: our own button opens the browser's install prompt.
+  window.addEventListener('beforeinstallprompt', (e) => {
+    e.preventDefault();
+    installEvent = e;
+    if (!install.hidden) { install.hidden = true; showInstall(); }
+  });
+  window.addEventListener('appinstalled', () => hideInstall(true));
+  installAdd.addEventListener('click', async () => {
+    if (!installEvent) return;
+    installEvent.prompt();
+    await installEvent.userChoice.catch(() => {});
+    installEvent = null;
+    hideInstall(true); // installed or refused: don't ask again for a while
+  });
+  $('install-close').addEventListener('click', () => hideInstall(true));
+  setTimeout(showInstall, 4000);
 
   load();
   setupSubscriptions();

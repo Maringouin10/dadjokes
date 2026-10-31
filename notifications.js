@@ -162,11 +162,15 @@ function createNotifier({ dataDir, getCurrentJoke }) {
     return res.json();
   }
 
+  // Fields shared by every e-mail. Reply-To pointing to a real mailbox helps deliverability.
+  function envelope(to) {
+    return { from: config.EMAIL_FROM, to: [to], ...(config.EMAIL_REPLY_TO ? { reply_to: config.EMAIL_REPLY_TO } : {}) };
+  }
+
   function toResend(sub, email) {
     const unsubscribeUrl = unsubscribeUrlFor(sub);
     return {
-      from: config.EMAIL_FROM,
-      to: [sub.email],
+      ...envelope(sub.email),
       subject: email.subject,
       html: email.html,
       text: email.text,
@@ -197,7 +201,7 @@ function createNotifier({ dataDir, getCurrentJoke }) {
     await save();
     const confirmUrl = `${config.PUBLIC_URL}/email/confirm?token=${sub.token}`;
     const message = templates.confirmEmail({ baseUrl: config.PUBLIC_URL, confirmUrl });
-    await resend('/emails', { from: config.EMAIL_FROM, to: [sub.email], ...message });
+    await resend('/emails', { ...envelope(sub.email), ...message });
     return 'ok';
   }
 
@@ -292,6 +296,21 @@ function createNotifier({ dataDir, getCurrentJoke }) {
       }
     } catch (err) {
       bad(`Impossible de joindre l’API Resend : ${err.message}`);
+    }
+    // Without DMARC, Gmail and Yahoo put most e-mails from a new domain in spam.
+    const rootDomain = fromDomain.split('.').slice(-2).join('.');
+    try {
+      const records = (await require('node:dns').promises.resolveTxt(`_dmarc.${rootDomain}`)).map((r) => r.join(''));
+      if (records.some((r) => /^v=DMARC1/i.test(r))) ok(`DMARC présent sur ${rootDomain}`);
+      else throw Object.assign(new Error('none'), { code: 'ENODATA' });
+    } catch (err) {
+      if (err.code === 'ENODATA' || err.code === 'ENOTFOUND') {
+        warn(`Pas d’enregistrement DMARC : les e-mails risquent d’arriver en spam. Ajoute dans le DNS : TXT _dmarc.${rootDomain} = "v=DMARC1; p=none;"`);
+      }
+    }
+    const siteDomain = (() => { try { return new URL(PUBLIC_URL).hostname.split('.').slice(-2).join('.'); } catch { return ''; } })();
+    if (siteDomain && siteDomain !== rootDomain) {
+      warn(`Les liens des e-mails (${siteDomain}) ne sont pas sur le domaine de l’expéditeur (${rootDomain}) : ça peut envoyer en spam`);
     }
     return lines;
   }

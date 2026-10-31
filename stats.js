@@ -86,7 +86,7 @@ function countryName(code) {
 
 function createStats({ dataDir, ads, diagnose: diagnoseNotifications }) {
   const file = path.join(dataDir, 'stats.json');
-  let data = { salt: crypto.randomBytes(16).toString('hex'), days: {}, hashes: {} };
+  let data = { salt: crypto.randomBytes(16).toString('hex'), days: {}, hashes: {}, installs: {} };
   try {
     data = { ...data, ...JSON.parse(fs.readFileSync(file, 'utf8')) };
   } catch { /* first start */ }
@@ -171,6 +171,11 @@ function createStats({ dataDir, ads, diagnose: diagnoseNotifications }) {
       day.others += 1;
       return scheduleSave();
     }
+    if (body.pwa === true && typeof body.install === 'string' && /^[a-f0-9]{32}$/.test(body.install)) {
+      const known = data.installs[body.install];
+      if (known) known.last = dayKey();
+      else if (Object.keys(data.installs).length < 100000) data.installs[body.install] = { first: dayKey(), last: dayKey(), device: deviceOf(ua) };
+    }
     const { country, city } = await locate(req, ip);
     const visitor = crypto.createHash('sha256').update(`${data.salt}|${dayKey()}|${ip}|${ua}`).digest('hex').slice(0, 16);
     const seen = (data.hashes[dayKey()] ||= []);
@@ -250,6 +255,7 @@ function createStats({ dataDir, ads, diagnose: diagnoseNotifications }) {
     await record(req, {
       qr: body.qr,
       pwa: body.pwa,
+      install: body.install,
       ref: typeof body.ref === 'string' ? body.ref.slice(0, 300) : '',
     });
     return json(res, 200, { ok: true });
@@ -321,6 +327,7 @@ textarea,select{width:100%;min-height:44px;border:1px solid var(--sep);border-ra
     const dayLabel = (k) => k.slice(5).replace('-', '/');
     const last = days[days.length - 1];
     const n = `${DASHBOARD_DAYS} j`;
+    const installs = Object.values(data.installs || {});
 
     return page('Stats · Admin', `<main>
 <div class="top"><div><h1>Statistiques</h1><p class="sub">Visites humaines : code QR, application installée ou recherche ${escapeHtml(config.HUMAN_REFERRERS.join(', '))} · fuseau ${escapeHtml(config.TIME_ZONE)}</p></div>
@@ -330,6 +337,7 @@ textarea,select{width:100%;min-height:44px;border:1px solid var(--sep);border-ra
 <div class="kpi"><b>${fmt(last.views)}</b><span>Aujourd’hui · ${fmt(last.uniques)} visiteurs uniques</span></div>
 <div class="kpi"><b>${fmt(sum(days.slice(-7), (d) => d.views))}</b><span>7 derniers jours</span></div>
 <div class="kpi"><b>${fmt(viewsN)}</b><span>${n} · ${fmt(sum(days, (d) => d.uniques))} uniques</span></div>
+<div class="kpi"><b>${fmt(installs.length)}</b><span>Applis installées (PWA) · ${fmt(installs.filter((i) => i.last >= keys[0]).length)} ouvertes ${n}</span></div>
 <div class="kpi"><b>${fmt(sum(days, (d) => d.others))}</b><span>Autres visites ${n} (non vérifiées)</span></div>
 <div class="kpi"><b>${fmt(sum(days, (d) => d.bots))}</b><span>Robots écartés ${n}</span></div></div>
 <div class="card"><h2>Visites humaines par jour</h2>

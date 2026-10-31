@@ -63,6 +63,10 @@ Sign-up uses double opt-in (a confirmation link is e-mailed first). Every e-mail
 unsubscribe link and one-click `List-Unsubscribe` headers. The e-mail button only shows when
 all three e-mail variables are set. Subscribers are stored in `/data/subscribers.json`.
 
+To keep e-mails out of spam: add a DMARC record in your DNS (`TXT _dmarc.yourdomain.com` =
+`v=DMARC1; p=none;`), turn off click and open tracking for the domain in Resend, and set
+`EMAIL_REPLY_TO` to a real mailbox. The startup report warns when DMARC is missing.
+
 ### Troubleshooting
 
 At startup the server prints what is configured and what is wrong (missing variable, invalid

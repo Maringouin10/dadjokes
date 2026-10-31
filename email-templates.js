@@ -46,9 +46,10 @@ function spacer(height) {
 }
 
 // Common frame: hidden preview text, header with icon and date, content rows, footer.
-function layout({ baseUrl, preheader, eyebrow, rows, footer }) {
+function layout({ baseUrl, preheader, eyebrow, rows, footer, hidePunchline = false }) {
   // Pads the preview so clients don't fill it with the body text (which could show the punchline).
-  const filler = '&#847;&zwnj;&nbsp;'.repeat(60);
+  // Only where there's a punchline to hide: spam filters dislike hidden filler.
+  const filler = hidePunchline ? '&#847;&zwnj;&nbsp;'.repeat(60) : '';
   return `<!doctype html>
 <html lang="fr" xmlns="http://www.w3.org/1999/xhtml">
 <head>
@@ -74,7 +75,7 @@ function layout({ baseUrl, preheader, eyebrow, rows, footer }) {
 </style>
 </head>
 <body class="bg" style="margin:0;padding:0;background:${C.bg};">
-<div style="display:none;max-height:0;overflow:hidden;mso-hide:all;font-size:1px;line-height:1px;color:${C.bg};">${escapeHtml(preheader)}${filler}</div>
+<div style="display:none;max-height:0;overflow:hidden;mso-hide:all;">${escapeHtml(preheader)}${filler}</div>
 <table role="presentation" class="bg" width="100%" cellpadding="0" cellspacing="0" border="0" bgcolor="${C.bg}" style="background:${C.bg};">
 <tr><td align="center" style="padding:32px 16px 40px;">
 <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="max-width:560px;font-family:${FONT};">
@@ -148,6 +149,7 @@ function dailyEmail({ joke, key, baseUrl, unsubscribeUrl }) {
       eyebrow: formatDay(key),
       rows: jokeRows({ joke, revealUrl, revealLabel: 'Retourner la carte' }),
       footer: footerHtml({ joke, unsubscribeUrl }),
+      hidePunchline: Boolean(setup),
     }),
     text: jokeText({ joke, baseUrl, revealUrl, unsubscribeUrl }),
   };
@@ -166,30 +168,31 @@ C’est confirmé ✅ Pour ne pas te faire attendre, voici déjà celle d’aujo
       eyebrow: formatDay(key),
       rows: [intro, ...jokeRows({ joke, revealUrl, revealLabel: 'Retourner la carte' })],
       footer: footerHtml({ joke, unsubscribeUrl }),
+      hidePunchline: true,
     }),
     text: jokeText({ joke, baseUrl, revealUrl, unsubscribeUrl, intro: 'C’est confirmé ! Voici déjà la blague d’aujourd’hui :\n' }),
   };
 }
 
-// Double opt-in.
+// Double opt-in. Kept plain (short text, one link, no emoji) so filters treat it as a transactional e-mail.
 function confirmEmail({ baseUrl, confirmUrl }) {
+  const site = baseUrl.replace(/^https?:\/\//, '');
   const rows = [
-    card(`<p style="margin:0 0 14px;font-size:44px;line-height:48px;">😐</p>
-<p class="label" style="margin:0 0 10px;font-size:22px;line-height:28px;font-weight:700;color:${C.label};">Une blague plate par jour ?</p>
-<p class="secondary" style="margin:0 0 28px;font-size:16px;line-height:24px;color:${C.secondary};">Confirme ton adresse pour la recevoir chaque jour.<br>${schedule()}</p>
-${button(confirmUrl, 'Confirmer mon abonnement')}`),
+    card(`<p class="label" style="margin:0 0 10px;font-size:22px;line-height:28px;font-weight:700;color:${C.label};">Confirme ton adresse e-mail</p>
+<p class="secondary" style="margin:0 0 28px;font-size:16px;line-height:24px;color:${C.secondary};">Tu as demandé à recevoir la blague du jour sur ${escapeHtml(site)}. Clique sur le bouton pour confirmer ton adresse.</p>
+${button(confirmUrl, 'Confirmer mon adresse')}`),
   ];
   return {
-    subject: 'Confirme ton abonnement à la blague plate du jour',
+    subject: 'Confirme ton adresse e-mail',
     html: layout({
       baseUrl,
-      preheader: 'Un clic et tu reçois une blague plate chaque jour.',
+      preheader: `Un clic pour confirmer ton inscription sur ${site}.`,
       eyebrow: 'Confirmation',
       rows,
-      footer: `Si tu n’as rien demandé, ignore simplement cet e-mail : tu ne recevras rien.<br>
-Le lien ne marche pas ? Copie cette adresse dans ton navigateur :<br><span style="word-break:break-all;">${escapeHtml(confirmUrl)}</span>`,
+      footer: `Si tu n’as rien demandé, ignore cet e-mail : tu ne recevras rien d’autre.<br>
+Le bouton ne marche pas ? Copie ce lien dans ton navigateur :<br><span style="word-break:break-all;">${escapeHtml(confirmUrl)}</span>`,
     }),
-    text: `Une blague plate par jour ?\n\nConfirme ton abonnement :\n${confirmUrl}\n\n${schedule()}\n\nSi tu n’as rien demandé, ignore cet e-mail.`,
+    text: `Bonjour,\n\nTu as demandé à recevoir la blague du jour sur ${site}.\nConfirme ton adresse en ouvrant ce lien :\n${confirmUrl}\n\n${schedule()}\n\nSi tu n’as rien demandé, ignore cet e-mail : tu ne recevras rien d’autre.\n\n— ${site}`,
   };
 }
 

@@ -52,8 +52,7 @@
 
     <div class="actions">
       <button class="button" id="share" type="button" hidden>Partager</button>
-      <button class="button secondary" id="push" type="button" aria-pressed="false" hidden>Notifications</button>
-      <button class="button secondary" id="email" type="button" hidden>E-mail</button>
+      <button class="button secondary" id="notify" type="button" aria-haspopup="dialog" hidden>Notifications</button>
     </div>
 
     <p class="toast" id="toast" role="status" aria-live="polite"></p>
@@ -76,20 +75,48 @@
     </div>
   </dialog>
 
-  <dialog class="sheet" id="email-dialog" aria-labelledby="email-title">
-    <form class="sheet-form" id="email-form" novalidate>
-      <h2 class="sheet-title" id="email-title">La blague par e-mail</h2>
+  <dialog class="sheet" id="notify-dialog" aria-labelledby="notify-title">
+    <div class="sheet-form" id="notify-choice">
+      <h2 class="sheet-title" id="notify-title">Recevoir la blague</h2>
+      <p class="sheet-text">Choisis comment recevoir la blague plate du jour, %SCHEDULE%.</p>
+      <div class="choices">
+        <button class="choice" id="push" type="button" aria-pressed="false" hidden>
+          <span class="choice-icon" aria-hidden="true">🔔</span>
+          <span class="choice-text"><b>Notification</b><small id="push-state">Sur cet appareil</small></span>
+        </button>
+        <button class="choice" id="email" type="button" hidden>
+          <span class="choice-icon" aria-hidden="true">✉️</span>
+          <span class="choice-text"><b>E-mail</b><small>Dans ta boîte mail</small></span>
+        </button>
+      </div>
+      <p class="sheet-status" id="push-status" role="status" aria-live="polite"></p>
+      <div class="sheet-actions">
+        <button class="button secondary" type="button" id="notify-close">Fermer</button>
+      </div>
+    </div>
+    <form class="sheet-form" id="email-form" novalidate hidden>
+      <h2 class="sheet-title">La blague par e-mail</h2>
       <p class="sheet-text">Reçois la blague plate du jour dans ta boîte mail, %SCHEDULE%.</p>
       <label class="visually-hidden" for="email-input">Adresse e-mail</label>
       <input class="field" id="email-input" name="email" type="email" inputmode="email" autocomplete="email"
              placeholder="toi@exemple.com" required maxlength="254">
       <p class="sheet-status" id="email-status" role="status" aria-live="polite"></p>
       <div class="sheet-actions">
-        <button class="button secondary" type="button" id="email-cancel">Annuler</button>
+        <button class="button secondary" type="button" id="email-cancel">Retour</button>
         <button class="button" type="submit" id="email-submit">S’abonner</button>
       </div>
     </form>
   </dialog>
+
+  <div class="install" id="install" role="dialog" aria-labelledby="install-title" hidden>
+    <img class="install-icon" src="/icons/icon-192.png" width="44" height="44" alt="">
+    <div class="install-text">
+      <p class="install-title" id="install-title">Installe l’appli</p>
+      <p class="install-help" id="install-help">Ajoute la blague à ton écran d’accueil.</p>
+    </div>
+    <button class="button install-add" id="install-add" type="button" hidden>Installer</button>
+    <button class="install-close" id="install-close" type="button" aria-label="Fermer">✕</button>
+  </div>
 
   <script src="/flip-animations.js" defer></script>
   <script src="/app.js" defer></script>

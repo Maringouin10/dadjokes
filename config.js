@@ -44,6 +44,7 @@ const SETTINGS = [
 
   { group: 'E-mails (Resend)', key: 'RESEND_API_KEY', label: 'Clé API Resend', type: 'secret', def: '', help: 'Commence par re_' },
   { group: 'E-mails (Resend)', key: 'EMAIL_FROM', label: 'Expéditeur', type: 'text', def: '', help: 'Ex. La blague plate du jour <blague@blaguedujour.lol>' },
+  { group: 'E-mails (Resend)', key: 'EMAIL_REPLY_TO', label: 'Adresse de réponse', type: 'text', def: '', help: 'Facultatif : une vraie boîte qui reçoit les réponses (aide à ne pas finir en spam).', validate: (v) => !v || /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v) },
 
   { group: 'Notifications push', key: 'VAPID_SUBJECT', label: 'Ton adresse e-mail (contact push)', type: 'text', def: '' },
   { group: 'Notifications push', key: 'VAPID_PUBLIC_KEY', label: 'Clé VAPID publique', type: 'text', def: '', restart: true, help: 'Facultatif (sinon générée). La changer coupe les abonnés push actuels.' },
