@@ -17,6 +17,18 @@ const PORT = Number(process.env.PORT) || 8002;
 const DATA_DIR = process.env.DATA_DIR || path.join(__dirname, 'data');
 const STORE_FILE = path.join(DATA_DIR, 'jokes.json');
 const PUBLIC_DIR = path.join(__dirname, 'public');
+
+// Fingerprint of the files in public/: added as ?v= to every asset URL in the HTML and the manifest,
+// so a new deploy gets new URLs and no browser, proxy or CDN can serve an old copy.
+const ASSET_VERSION = (() => {
+  const hash = require('crypto').createHash('sha256');
+  const walk = (dir) => fs.readdirSync(dir, { withFileTypes: true })
+    .sort((a, b) => a.name.localeCompare(b.name))
+    .forEach((e) => (e.isDirectory() ? walk(path.join(dir, e.name)) : hash.update(e.name).update(fs.readFileSync(path.join(dir, e.name)))));
+  walk(PUBLIC_DIR);
+  return hash.digest('hex').slice(0, 10);
+})();
+const versionAssets = (text) => text.replace(/((?:href|src)=?"|"src": ")(\/[^"?#]+\.(?:css|js|webmanifest|png|svg))"/g, `$1$2?v=${ASSET_VERSION}"`);
 const USER_AGENT = 'DadJokes daily (https://github.com/maringouin10/dadjokes)';
 
 // Last-resort jokes, used only when every public API is unreachable.
@@ -397,6 +409,7 @@ async function handleStatic(req, res, pathname) {
         .replaceAll('%HISTORY_DAYS%', String(config.HISTORY_DAYS))
         .replaceAll('%SITE_NAME%', escapeHtml(config.SITE_NAME));
     }
+    if (ext === '.html' || ext === '.webmanifest') data = versionAssets(data.toString('utf8'));
     send(res, 200, req.method === 'HEAD' ? undefined : data, {
       'Content-Type': MIME[ext] || 'application/octet-stream',
       'Cache-Control': 'no-store',
