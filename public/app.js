@@ -46,6 +46,21 @@
   function render(data) {
     current = data;
     els.card.setAttribute('aria-busy', 'false');
+    if (data.unavailable) {
+      els.joke.innerHTML = '';
+      const p = document.createElement('span');
+      p.className = 'removed';
+      p.textContent = `Cette blague a été retirée après des signalements. Nouvelle blague ${data.schedule || 'bientôt'}.`;
+      els.joke.append(p);
+      els.card.hidden = false;
+      els.flip.hidden = true;
+      els.date.textContent = formatDate(data.date);
+      els.source.textContent = '\u00a0';
+      els.share.hidden = true;
+      updateReportButton();
+      scheduleRefresh(new Date(data.nextChangeAt).getTime());
+      return;
+    }
     if (data.punchline) {
       els.setup.textContent = data.setup;
       els.punchline.textContent = data.punchline;
@@ -61,6 +76,7 @@
     els.date.textContent = formatDate(data.date);
     renderSource(data);
     els.share.hidden = false;
+    updateReportButton();
     scheduleRefresh(new Date(data.nextChangeAt).getTime());
   }
 
@@ -412,6 +428,7 @@
   }
 
   const choice = $('notify-choice');
+  let emailCaptcha = null;
   const showChoice = () => { form.hidden = true; choice.hidden = false; };
 
   notifyButton.addEventListener('click', () => {
@@ -428,6 +445,8 @@
     $('email-cancel').textContent = 'Retour';
     choice.hidden = true;
     form.hidden = false;
+    emailCaptcha?.remove();
+    emailCaptcha = captcha($('email-captcha'));
     input.focus();
   });
   // "Retour" goes back to the choice; once subscribed, the same button closes the sheet.
@@ -437,16 +456,20 @@
   form.addEventListener('submit', async (e) => {
     e.preventDefault();
     if (!input.checkValidity()) { setStatus('Entre une adresse e-mail valide.', true); return; }
+    if (!$('email-consent').checked) { setStatus('Coche la case pour accepter la politique de confidentialité.', true); return; }
+    if (emailCaptcha?.needed && !emailCaptcha.token) { setStatus('Termine la vérification anti-robot.', true); return; }
     submit.disabled = true;
     setStatus('Envoi…');
     try {
-      await postJson('/api/email/subscribe', { email: input.value });
+      await postJson('/api/email/subscribe', { email: input.value, consent: true, turnstile: emailCaptcha?.token });
+      emailCaptcha?.remove();
       setStatus('C’est presque fini : clique sur le lien reçu par e-mail pour confirmer.');
       submit.hidden = true;
       input.disabled = true;
       $('email-cancel').textContent = 'Fermer';
     } catch (err) {
       setStatus(err.message, true);
+      emailCaptcha?.reset(); // a Turnstile token works only once
     } finally {
       submit.disabled = false;
     }
@@ -488,6 +511,111 @@
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', () => navigator.serviceWorker.register('/sw.js').catch(() => {}));
   }
+
+  // ---------- Cloudflare Turnstile (anti-robot) ----------
+  // Loaded only when a form needs it. Without a site key (not configured), forms work without it.
+
+  let turnstileLoading = null;
+  function loadTurnstile() {
+    turnstileLoading ||= new Promise((resolve, reject) => {
+      const script = document.createElement('script');
+      script.src = 'https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit';
+      script.async = true;
+      script.onload = () => resolve(window.turnstile);
+      script.onerror = () => { turnstileLoading = null; reject(new Error('turnstile')); };
+      document.head.append(script);
+    });
+    return turnstileLoading;
+  }
+
+  function captcha(container) {
+    const state = { needed: Boolean(config && config.turnstileSiteKey), token: null, id: null };
+    container.replaceChildren();
+    if (!state.needed) return { ...state, reset() {}, remove() {} };
+    loadTurnstile().then((ts) => {
+      state.id = ts.render(container, {
+        sitekey: config.turnstileSiteKey,
+        language: 'fr',
+        theme: 'auto',
+        callback: (token) => { state.token = token; },
+        'expired-callback': () => { state.token = null; },
+        'error-callback': () => { state.token = null; },
+      });
+    }).catch(() => { container.textContent = 'Impossible de charger la vérification anti-robot. Vérifie ta connexion.'; });
+    return {
+      get needed() { return state.needed; },
+      get token() { return state.token; },
+      reset() { state.token = null; if (state.id !== null) window.turnstile.reset(state.id); },
+      remove() { if (state.id !== null) window.turnstile.remove(state.id); state.id = null; container.replaceChildren(); },
+    };
+  }
+
+  // ---------- Report ----------
+  // One report per device and per joke: a random id kept in this browser, checked by the server.
+
+  const reportButton = $('report');
+  const reportDialog = $('report-dialog');
+  const reportStatus = $('report-status');
+  const reportSubmit = $('report-submit');
+  let reportCaptcha = null;
+
+  function storageGet(key) { try { return localStorage.getItem(key); } catch { return null; } }
+  function storageSet(key, value) { try { localStorage.setItem(key, value); } catch { /* storage blocked */ } }
+
+  function deviceId() {
+    let id = storageGet('device-id');
+    if (!id) {
+      id = [...crypto.getRandomValues(new Uint8Array(16))].map((b) => b.toString(16).padStart(2, '0')).join('');
+      storageSet('device-id', id);
+    }
+    return id;
+  }
+
+  function updateReportButton() {
+    const done = current && current.id && storageGet('reported') === current.id;
+    reportButton.hidden = !current || current.unavailable;
+    reportButton.disabled = Boolean(done);
+    reportButton.textContent = done ? 'Blague signalée ✓' : 'Signaler cette blague';
+  }
+
+  reportButton.addEventListener('click', () => {
+    reportStatus.textContent = '';
+    reportStatus.classList.remove('error');
+    reportSubmit.hidden = false;
+    $('report-cancel').textContent = 'Annuler';
+    reportCaptcha?.remove();
+    reportCaptcha = captcha($('report-captcha'));
+    reportDialog.showModal();
+  });
+  $('report-cancel').addEventListener('click', () => reportDialog.close());
+  reportDialog.addEventListener('click', (e) => { if (e.target === reportDialog) reportDialog.close(); });
+  reportDialog.addEventListener('close', () => { reportCaptcha?.remove(); reportCaptcha = null; });
+
+  $('report-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const fail = (message) => { reportStatus.textContent = message; reportStatus.classList.add('error'); };
+    if (reportCaptcha?.needed && !reportCaptcha.token) { fail('Termine la vérification anti-robot.'); return; }
+    reportSubmit.disabled = true;
+    reportStatus.classList.remove('error');
+    reportStatus.textContent = 'Envoi…';
+    try {
+      const { outcome } = await postJson('/api/report', { id: current.id, device: deviceId(), turnstile: reportCaptcha?.token });
+      storageSet('reported', current.id);
+      updateReportButton();
+      reportStatus.textContent = outcome === 'replaced'
+        ? 'Merci ! Cette blague est retirée : en voici une nouvelle.'
+        : outcome === 'removed' ? 'Merci ! Cette blague est retirée.' : 'Merci, ton signalement est enregistré.';
+      reportSubmit.hidden = true;
+      $('report-cancel').textContent = 'Fermer';
+      reportCaptcha?.remove();
+      if (outcome === 'replaced' || outcome === 'removed') load();
+    } catch (err) {
+      fail(err.message);
+      reportCaptcha?.reset();
+    } finally {
+      reportSubmit.disabled = false;
+    }
+  });
 
   // ---------- Install pop-up (phones only) ----------
   // Shown once in a while on phones, outside the installed app. ✕ hides it for 30 days.

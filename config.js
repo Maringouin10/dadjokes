@@ -46,6 +46,15 @@ const SETTINGS = [
   { group: 'E-mails (Resend)', key: 'EMAIL_FROM', label: 'Expéditeur', type: 'text', def: '', help: 'Ex. La blague plate du jour <blague@blaguedujour.lol>' },
   { group: 'E-mails (Resend)', key: 'EMAIL_REPLY_TO', label: 'Adresse de réponse', type: 'text', def: '', help: 'Facultatif : une vraie boîte qui reçoit les réponses (aide à ne pas finir en spam).', validate: (v) => !v || /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v) },
 
+  { group: 'Anti-robot (Cloudflare Turnstile)', key: 'TURNSTILE_SITE_KEY', label: 'Clé du site Turnstile', type: 'text', def: '', help: 'dash.cloudflare.com → Turnstile → Ajouter un widget. Protège l’inscription par e-mail et les signalements.' },
+  { group: 'Anti-robot (Cloudflare Turnstile)', key: 'TURNSTILE_SECRET_KEY', label: 'Clé secrète Turnstile', type: 'secret', def: '' },
+
+  { group: 'Signalements', key: 'REPORT_THRESHOLD', label: 'Signalements pour retirer une blague', type: 'number', def: 10, min: 2, max: 1000, help: 'Un seul signalement par appareil, avec vérification anti-robot.' },
+  { group: 'Signalements', key: 'REPORT_REPLACE_HOURS', label: 'Remplacer la blague si retirée moins de … h après son affichage', type: 'number', def: 6, min: 0, max: 36, help: 'Plus tard, elle est seulement marquée « non disponible » jusqu’à la suivante.' },
+
+  { group: 'Confidentialité (Loi 25)', key: 'PRIVACY_OFFICER', label: 'Responsable de la protection des renseignements personnels', type: 'text', def: '', help: 'Nom ou titre affiché dans la politique de confidentialité (obligatoire au Québec).' },
+  { group: 'Confidentialité (Loi 25)', key: 'PRIVACY_EMAIL', label: 'Courriel du responsable', type: 'text', def: '', help: 'Pour les demandes d’accès, de correction ou de suppression.', validate: (v) => !v || /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v) },
+
   { group: 'Notifications push', key: 'VAPID_SUBJECT', label: 'Ton adresse e-mail (contact push)', type: 'text', def: '' },
   { group: 'Notifications push', key: 'VAPID_PUBLIC_KEY', label: 'Clé VAPID publique', type: 'text', def: '', restart: true, help: 'Facultatif (sinon générée). La changer coupe les abonnés push actuels.' },
   { group: 'Notifications push', key: 'VAPID_PRIVATE_KEY', label: 'Clé VAPID privée', type: 'secret', def: '', restart: true },

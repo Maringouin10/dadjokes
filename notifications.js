@@ -189,6 +189,8 @@ function createNotifier({ dataDir, getCurrentJoke }) {
     if (!emailEnabled()) return 'disabled';
     const email = String(rawEmail || '').trim().toLowerCase();
     if (email.length > 254 || !EMAIL_RE.test(email)) return 'invalid';
+    // Unconfirmed addresses are deleted after 30 days (privacy: keep only what is needed).
+    subs.emails = subs.emails.filter((s) => s.confirmed || Date.now() - Date.parse(s.createdAt || 0) < 30 * 86400e3);
     let sub = subs.emails.find((s) => s.email === email);
     if (sub && sub.confirmed) return 'ok'; // same answer either way: no address enumeration
     if (sub && Date.now() - Date.parse(sub.sentAt || 0) < 10 * 60e3) return 'ok';
@@ -198,6 +200,7 @@ function createNotifier({ dataDir, getCurrentJoke }) {
       subs.emails.push(sub);
     }
     sub.sentAt = new Date().toISOString();
+    sub.consentAt = sub.sentAt; // the form requires accepting the privacy policy
     await save();
     const confirmUrl = `${config.PUBLIC_URL}/email/confirm?token=${sub.token}`;
     const message = templates.confirmEmail({ baseUrl: config.PUBLIC_URL, confirmUrl });

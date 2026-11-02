@@ -58,10 +58,14 @@
     <p class="toast" id="toast" role="status" aria-live="polite"></p>
 
     <p class="next" id="next"></p>
+    <button class="link-button" id="report" type="button" aria-haspopup="dialog" hidden>Signaler cette blague</button>
   </main>
 
   <footer class="footer">
     <p id="source">&nbsp;</p>
+    <p class="disclaimer">Les blagues viennent de sources externes et sont filtrées automatiquement. Nous ne sommes pas
+      responsables de leur contenu : si l’une d’elles est offensante, signale-la.</p>
+    <p class="legal-links"><a href="/confidentialite">Confidentialité</a> · <a href="/conditions">Conditions d’utilisation</a></p>
   </footer>
 
   <dialog class="sheet history" id="history-dialog" aria-labelledby="history-title">
@@ -100,10 +104,30 @@
       <label class="visually-hidden" for="email-input">Adresse e-mail</label>
       <input class="field" id="email-input" name="email" type="email" inputmode="email" autocomplete="email"
              placeholder="toi@exemple.com" required maxlength="254">
+      <label class="check">
+        <input type="checkbox" id="email-consent" required>
+        <span>J’accepte la <a href="/confidentialite" target="_blank">politique de confidentialité</a> et j’ai 14 ans ou plus
+          (sinon, l’accord d’un parent).</span>
+      </label>
+      <div class="captcha" id="email-captcha"></div>
       <p class="sheet-status" id="email-status" role="status" aria-live="polite"></p>
       <div class="sheet-actions">
         <button class="button secondary" type="button" id="email-cancel">Retour</button>
         <button class="button" type="submit" id="email-submit">S’abonner</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog class="sheet" id="report-dialog" aria-labelledby="report-title">
+    <form class="sheet-form" id="report-form" novalidate>
+      <h2 class="sheet-title" id="report-title">Signaler cette blague ?</h2>
+      <p class="sheet-text">Si elle est offensante ou déplacée, signale-la. Après %REPORT_THRESHOLD% signalements venant
+        d’appareils différents, elle est retirée.</p>
+      <div class="captcha" id="report-captcha"></div>
+      <p class="sheet-status" id="report-status" role="status" aria-live="polite"></p>
+      <div class="sheet-actions">
+        <button class="button secondary" type="button" id="report-cancel">Annuler</button>
+        <button class="button" type="submit" id="report-submit">Signaler</button>
       </div>
     </form>
   </dialog>

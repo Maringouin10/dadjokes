@@ -12,6 +12,8 @@ const { createNotifier, escapeHtml } = require('./notifications');
 const { createStats } = require('./stats');
 const { createAds } = require('./ads');
 const config = require('./config');
+const turnstile = require('./turnstile');
+const crypto = require('node:crypto');
 
 const PORT = Number(process.env.PORT) || 8002;
 const DATA_DIR = process.env.DATA_DIR || path.join(__dirname, 'data');
@@ -108,8 +110,9 @@ async function saveStore() {
   await fsp.rename(tmp, STORE_FILE);
 }
 
+// Every joke already shown, plus the ones removed after reports: never picked again.
 function seenIds() {
-  return new Set(Object.values(store.days).map((j) => j.id));
+  return new Set([...Object.values(store.days).map((j) => j.id), ...(store.banned || [])]);
 }
 
 // ---------- Joke sources ----------
@@ -179,8 +182,11 @@ async function pickNewJoke(dayKey) {
       }
     }
   }
-  // Deterministic fallback based on the day, so it stays stable all day.
-  const index = Number(dayKey.replaceAll('-', '')) % FALLBACK_JOKES.length;
+  // Deterministic fallback based on the day, so it stays stable all day (skipping removed ones).
+  let index = Number(dayKey.replaceAll('-', '')) % FALLBACK_JOKES.length;
+  for (let i = 0; i < FALLBACK_JOKES.length && (store.banned || []).includes(`fallback:${index}`); i++) {
+    index = (index + 1) % FALLBACK_JOKES.length;
+  }
   return {
     id: `fallback:${index}`,
     text: FALLBACK_JOKES[index],
@@ -217,6 +223,8 @@ async function notifyNewJoke() {
   const { dayKey, joke } = await getTodayJoke();
   if (store.notified === dayKey) return;
   store.notified = dayKey;
+  // Reports are only needed for the current joke: drop the older ones.
+  for (const [day, old] of Object.entries(store.days)) if (day !== dayKey) delete old.reports;
   await saveStore().catch((err) => console.error('[store] save failed:', err.message));
   console.log(`[notify] ${dayKey}`);
   await notifier.notifyAll(joke, dayKey);
@@ -247,12 +255,21 @@ function send(res, status, body, headers = {}) {
 async function handleApi(req, res) {
   const { dayKey, joke } = await getTodayJoke();
   const nextChange = jokePeriod().next;
+  if (joke.unavailable) {
+    return sendJson(res, 200, {
+      date: dayKey,
+      unavailable: true,
+      nextChangeAt: nextChange.toISOString(),
+      schedule: config.SCHEDULE_TEXT,
+    });
+  }
   // Two-part jokes are stored as "setup\npunchline".
   const [setup, ...rest] = joke.text.split('\n');
   const punchline = rest.join('\n').trim() || null;
   send(res, 200, JSON.stringify({
     date: dayKey,
     timeZone: config.TIME_ZONE,
+    id: joke.id,
     joke: joke.text,
     setup: punchline ? setup : null,
     punchline,
@@ -274,7 +291,7 @@ function handleHistory(req, res) {
   const [y, m, d] = key.split('-').map(Number);
   const oldest = new Date(Date.UTC(y, m - 1, d - config.HISTORY_DAYS)).toISOString().slice(0, 10);
   const jokes = Object.entries(store.days)
-    .filter(([day, joke]) => day < key && day >= oldest && joke.lang === 'fr')
+    .filter(([day, joke]) => day < key && day >= oldest && joke.lang === 'fr' && !joke.unavailable)
     .sort(([a], [b]) => (a < b ? 1 : -1))
     .map(([day, joke]) => {
       const [setup, ...rest] = joke.text.split('\n');
@@ -328,6 +345,57 @@ function rateLimited(req) {
   return recent.length > 10;
 }
 
+function clientIp(req) {
+  return String(req.headers['cf-connecting-ip'] || req.headers['x-forwarded-for']?.split(',')[0].trim()
+    || req.socket.remoteAddress || '').replace(/^::ffff:/, '');
+}
+
+// ---------- Reports ----------
+// One report per device: a random id kept by the browser AND the network + browser pair
+// (hashed, never stored in clear) must both be new for this joke. Turnstile blocks scripts.
+
+function hashed(value) {
+  store.salt ||= crypto.randomBytes(16).toString('hex');
+  return crypto.createHash('sha256').update(`${store.salt}|${value}`).digest('hex').slice(0, 24);
+}
+
+async function handleReport(req, res) {
+  const body = await readJson(req);
+  const { dayKey, joke } = await getTodayJoke();
+  if (joke.unavailable) return sendJson(res, 200, { ok: true, outcome: 'removed' });
+  if (body.id !== joke.id) return sendJson(res, 409, { error: 'La blague a changé entre-temps. Recharge la page.' });
+  if (typeof body.device !== 'string' || !/^[a-f0-9]{32}$/.test(body.device)) {
+    return sendJson(res, 400, { error: 'Appareil non reconnu. Active le stockage du site et réessaie.' });
+  }
+  if (!(await turnstile.verify(body.turnstile, clientIp(req)))) {
+    return sendJson(res, 403, { error: 'Vérification anti-robot échouée. Réessaie.' });
+  }
+  const device = hashed(`device|${body.device}`);
+  const network = hashed(`net|${clientIp(req)}|${req.headers['user-agent'] || ''}`);
+  joke.reports ||= [];
+  if (joke.reports.some((r) => r.device === device || r.network === network)) {
+    return sendJson(res, 409, { error: 'Tu as déjà signalé cette blague depuis cet appareil.' });
+  }
+  joke.reports.push({ device, network, at: new Date().toISOString() });
+  let outcome = 'reported';
+  if (joke.reports.length >= config.REPORT_THRESHOLD) {
+    store.banned = [...new Set([...(store.banned || []), joke.id])];
+    const shownFor = Date.now() - Date.parse(joke.fetchedAt);
+    if (shownFor < config.REPORT_REPLACE_HOURS * 3600e3) {
+      const fresh = await pickNewJoke(dayKey);
+      store.days[dayKey] = { ...fresh, fetchedAt: new Date().toISOString(), replaces: joke.id };
+      outcome = 'replaced';
+      console.log(`[report] ${dayKey}: ${joke.id} retirée après ${joke.reports.length} signalements, remplacée par ${fresh.id}`);
+    } else {
+      joke.unavailable = true;
+      outcome = 'removed';
+      console.log(`[report] ${dayKey}: ${joke.id} retirée après ${joke.reports.length} signalements (non disponible)`);
+    }
+  }
+  await saveStore().catch((err) => console.error('[store] save failed:', err.message));
+  return sendJson(res, 200, { ok: true, outcome });
+}
+
 function sendJson(res, status, data) {
   send(res, status, JSON.stringify(data), { 'Content-Type': MIME['.json'], 'Cache-Control': 'no-store' });
 }
@@ -344,7 +412,11 @@ function sendPage(res, status, title, message) {
 
 async function handleSubscriptions(req, res, pathname, searchParams) {
   if (pathname === '/api/config' && req.method === 'GET') {
-    return sendJson(res, 200, { pushPublicKey: notifier.publicKey, email: notifier.emailEnabled });
+    return sendJson(res, 200, {
+      pushPublicKey: notifier.publicKey,
+      email: notifier.emailEnabled,
+      turnstileSiteKey: turnstile.enabled() ? config.TURNSTILE_SITE_KEY : null,
+    });
   }
 
   if (req.method === 'POST' && pathname.startsWith('/api/') && rateLimited(req)) {
@@ -362,8 +434,16 @@ async function handleSubscriptions(req, res, pathname, searchParams) {
     return sendJson(res, 200, { ok: true });
   }
 
+  if (pathname === '/api/report' && req.method === 'POST') return handleReport(req, res);
+
   if (pathname === '/api/email/subscribe' && req.method === 'POST') {
     const body = await readJson(req);
+    if (body.consent !== true) {
+      return sendJson(res, 400, { error: 'Coche la case pour accepter la politique de confidentialité.' });
+    }
+    if (!(await turnstile.verify(body.turnstile, clientIp(req)))) {
+      return sendJson(res, 403, { error: 'Vérification anti-robot échouée. Réessaie.' });
+    }
     try {
       const result = await notifier.addEmail(body.email);
       if (result === 'invalid') return sendJson(res, 400, { error: 'Adresse e-mail invalide.' });
@@ -396,8 +476,22 @@ async function handleSubscriptions(req, res, pathname, searchParams) {
   return false;
 }
 
+// Last change of the legal pages (shown on them).
+const LEGAL_UPDATED = '2 novembre 2026';
+
+function legalContact() {
+  const email = config.PRIVACY_EMAIL || config.EMAIL_REPLY_TO || config.VAPID_SUBJECT.replace(/^mailto:/, '');
+  return {
+    officer: config.PRIVACY_OFFICER || `Administrateur de ${config.SITE_NAME}`,
+    emailLink: email && email.includes('@')
+      ? `<a href="mailto:${escapeHtml(email)}">${escapeHtml(email)}</a>`
+      : '(adresse à configurer dans /admin)',
+  };
+}
+
 async function handleStatic(req, res, pathname) {
   if (pathname === '/') pathname = '/index.html';
+  if (pathname === '/confidentialite' || pathname === '/conditions') pathname += '.html';
   const filePath = path.normalize(path.join(PUBLIC_DIR, pathname));
   if (!filePath.startsWith(PUBLIC_DIR + path.sep)) return send(res, 403, 'Forbidden');
   try {
@@ -407,7 +501,13 @@ async function handleStatic(req, res, pathname) {
       data = data.toString('utf8')
         .replaceAll('%SCHEDULE%', escapeHtml(config.SCHEDULE_TEXT))
         .replaceAll('%HISTORY_DAYS%', String(config.HISTORY_DAYS))
-        .replaceAll('%SITE_NAME%', escapeHtml(config.SITE_NAME));
+        .replaceAll('%SITE_NAME%', escapeHtml(config.SITE_NAME))
+        .replaceAll('%SITE_HOST%', escapeHtml(config.SITE_URL.replace(/^https?:\/\//, '')))
+        .replaceAll('%REPORT_THRESHOLD%', String(config.REPORT_THRESHOLD))
+        .replaceAll('%REPORT_REPLACE_HOURS%', String(config.REPORT_REPLACE_HOURS))
+        .replaceAll('%UPDATED%', LEGAL_UPDATED)
+        .replaceAll('%PRIVACY_OFFICER%', escapeHtml(legalContact().officer))
+        .replaceAll('%PRIVACY_EMAIL_LINK%', legalContact().emailLink);
     }
     if (ext === '.html' || ext === '.webmanifest') data = versionAssets(data.toString('utf8'));
     send(res, 200, req.method === 'HEAD' ? undefined : data, {

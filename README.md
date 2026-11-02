@@ -67,6 +67,19 @@ To keep e-mails out of spam: add a DMARC record in your DNS (`TXT _dmarc.yourdom
 `v=DMARC1; p=none;`), turn off click and open tracking for the domain in Resend, and set
 `EMAIL_REPLY_TO` to a real mailbox. The startup report warns when DMARC is missing.
 
+### Anti-robot, reports and Québec privacy law (Loi 25)
+
+- **Cloudflare Turnstile** (`TURNSTILE_SITE_KEY`, `TURNSTILE_SECRET_KEY`) protects the e-mail sign-up and
+  the report button. Without keys, both work without it.
+- **Report button**: one report per device (random id kept by the browser *and* hashed IP + browser, both
+  must be new), Turnstile required. After `REPORT_THRESHOLD` (10) reports the joke is removed: replaced by a
+  new one if it has been shown for less than `REPORT_REPLACE_HOURS` (6 h), otherwise shown as unavailable
+  until the next one. A removed joke is never picked again.
+- **Loi 25**: `/confidentialite` (privacy policy) and `/conditions` (terms, with the disclaimer about joke
+  content). Set `PRIVACY_OFFICER` and `PRIVACY_EMAIL`. E-mail sign-up requires ticking the consent box;
+  unconfirmed addresses are deleted after 30 days; no cookies, no third-party geolocation (country/city
+  only from Cloudflare headers); the IP address is never stored.
+
 ### Troubleshooting
 
 At startup the server prints what is configured and what is wrong (missing variable, invalid

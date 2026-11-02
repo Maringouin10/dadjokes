@@ -29,10 +29,6 @@ function dayKey(date = new Date()) {
   return dayFormat.format(date);
 }
 
-function isPrivateIp(ip) {
-  return !ip || ip === '::1' || /^(127\.|10\.|192\.168\.|169\.254\.|172\.(1[6-9]|2\d|3[01])\.|f[cd][0-9a-f]{2}:|fe80:)/i.test(ip.replace(/^::ffff:/, ''));
-}
-
 function clientIp(req) {
   const ip = req.headers['cf-connecting-ip']
     || req.headers['x-forwarded-for']?.split(',')[0].trim()
@@ -121,27 +117,16 @@ function createStats({ dataDir, ads, diagnose: diagnoseNotifications }) {
 
   // ---------- Geolocation ----------
 
-  const geoCache = new Map();
-  async function locate(req, ip) {
+  // Country and city from the proxy's headers (Cloudflare…) only.
+  async function locate(req) {
     const header = req.headers['cf-ipcountry'] || req.headers['x-vercel-ip-country']
       || req.headers['cloudfront-viewer-country'] || req.headers['x-country-code'];
     const city = req.headers['cf-ipcity'] || req.headers['x-vercel-ip-city'];
     if (/^[A-Za-z]{2}$/.test(header || '') && header !== 'XX') {
       return { country: header.toUpperCase(), city: city ? decodeURIComponent(city) : null };
     }
-    if (isPrivateIp(ip)) return { country: '??', city: null };
-    if (geoCache.has(ip)) return geoCache.get(ip);
-    let result = { country: '??', city: null };
-    try {
-      const res = await fetch(`https://ipwho.is/${encodeURIComponent(ip)}?fields=success,country_code,city`, {
-        signal: AbortSignal.timeout(4000),
-      });
-      const geo = await res.json();
-      if (geo.success && /^[A-Z]{2}$/.test(geo.country_code)) result = { country: geo.country_code, city: geo.city || null };
-    } catch { /* unknown location */ }
-    if (geoCache.size > 5000) geoCache.clear();
-    geoCache.set(ip, result);
-    return result;
+    // No third-party geolocation: the IP address never leaves the server (Loi 25, privacy by default).
+    return { country: '??', city: null };
   }
 
   // ---------- Recording ----------
@@ -176,7 +161,7 @@ function createStats({ dataDir, ads, diagnose: diagnoseNotifications }) {
       if (known) known.last = dayKey();
       else if (Object.keys(data.installs).length < 100000) data.installs[body.install] = { first: dayKey(), last: dayKey(), device: deviceOf(ua) };
     }
-    const { country, city } = await locate(req, ip);
+    const { country, city } = await locate(req);
     const visitor = crypto.createHash('sha256').update(`${data.salt}|${dayKey()}|${ip}|${ua}`).digest('hex').slice(0, 16);
     const seen = (data.hashes[dayKey()] ||= []);
     day.views += 1;
@@ -346,7 +331,7 @@ textarea,select{width:100%;min-height:44px;border:1px solid var(--sep);border-ra
 <div class="grid">
 <div class="card"><h2>Arrivés par (${n})</h2>${table(merge('origins'), viewsN)}</div>
 <div class="card"><h2>Pays (${n})</h2>${table(merge('countries'), viewsN, undefined, (k) => `${flag(k)} ${escapeHtml(countryName(k))}`)}</div>
-<div class="card"><h2>Villes (${n})</h2>${table(merge('cities'), viewsN, 'Pas de ville (nécessite le service de géolocalisation).')}</div>
+<div class="card"><h2>Villes (${n})</h2>${table(merge('cities'), viewsN, 'Pas de ville (active « Add visitor location headers » dans Cloudflare).')}</div>
 <div class="card"><h2>Sites d’origine (${n})</h2>${table(merge('sources'), viewsN)}</div>
 <div class="card"><h2>Appareils (${n})</h2>${table(merge('devices'), viewsN)}</div></div>
 ${ads ? ads.adminHtml() : ''}

@@ -519,3 +519,47 @@ a.button { display: inline-flex; align-items: center; justify-content: center; t
   cursor: pointer;
 }
 .install-close:hover { background: var(--fill); }
+
+/* ---------- Report, consent, legal ---------- */
+
+.link-button {
+  align-self: center;
+  min-height: 44px;
+  margin-top: -8px;
+  padding: 0 12px;
+  border: 0;
+  background: transparent;
+  color: var(--tertiary);
+  font: inherit;
+  font-size: 0.875rem;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  cursor: pointer;
+}
+.link-button:hover { color: var(--accent-text); }
+.link-button:disabled { text-decoration: none; cursor: default; color: var(--tertiary); }
+
+.check { display: flex; gap: 10px; align-items: flex-start; font-size: 0.875rem; color: var(--secondary); line-height: 1.4; }
+.check input { flex: none; width: 20px; height: 20px; margin: 1px 0 0; accent-color: var(--accent); }
+.check a { color: var(--accent-text); }
+
+.captcha:empty { display: none; }
+.captcha { min-height: 65px; display: flex; justify-content: center; }
+
+.footer .disclaimer { margin: 8px auto 0; max-width: 520px; font-size: 0.75rem; line-height: 1.45; color: var(--tertiary); }
+.footer .legal-links { margin: 8px 0 0; font-size: 0.75rem; }
+.footer .legal-links a { color: var(--secondary); }
+
+.removed { color: var(--secondary); font-size: 1.125rem; font-weight: 500; }
+
+/* Legal pages */
+.legal { max-width: 720px; margin: 0 auto; padding: max(24px, env(safe-area-inset-top)) 20px 48px; line-height: 1.6; }
+.legal h1 { font-size: 1.75rem; line-height: 1.2; margin: 8px 0 4px; }
+.legal h2 { font-size: 1.125rem; margin: 28px 0 8px; }
+.legal p, .legal li { color: var(--label); font-size: 0.9875rem; }
+.legal .updated { color: var(--secondary); margin: 0 0 20px; font-size: 0.875rem; }
+.legal a { color: var(--accent-text); }
+.legal table { width: 100%; border-collapse: collapse; font-size: 0.9rem; }
+.legal th, .legal td { text-align: left; vertical-align: top; padding: 8px 8px 8px 0; border-top: 1px solid var(--separator); }
+.legal .legal-back { display: inline-block; margin-bottom: 8px; }
+.captcha { font-size: 0.875rem; color: var(--secondary); text-align: center; }

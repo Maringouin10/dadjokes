@@ -118,7 +118,8 @@ function footerHtml({ joke, unsubscribeUrl }) {
     : escapeHtml(joke.source);
   return `Blague : ${source}<br>${schedule()}<br><br>
 Tu reçois cet e-mail parce que tu t’es abonné à la blague plate du jour.<br>
-<a href="${escapeHtml(unsubscribeUrl)}" style="color:${C.tertiary};">Se désabonner</a>`;
+<a href="${escapeHtml(unsubscribeUrl)}" style="color:${C.tertiary};">Se désabonner</a> ·
+<a href="${escapeHtml(unsubscribeUrl.replace(/\/email\/.*$/, '/confidentialite'))}" style="color:${C.tertiary};">Confidentialité</a>`;
 }
 
 function subjectFor(joke) {
@@ -190,7 +191,8 @@ ${button(confirmUrl, 'Confirmer mon adresse')}`),
       eyebrow: 'Confirmation',
       rows,
       footer: `Si tu n’as rien demandé, ignore cet e-mail : tu ne recevras rien d’autre.<br>
-Le bouton ne marche pas ? Copie ce lien dans ton navigateur :<br><span style="word-break:break-all;">${escapeHtml(confirmUrl)}</span>`,
+Le bouton ne marche pas ? Copie ce lien dans ton navigateur :<br><span style="word-break:break-all;">${escapeHtml(confirmUrl)}</span><br><br>
+<a href="${escapeHtml(baseUrl)}/confidentialite" style="color:${C.tertiary};">Politique de confidentialité</a>`,
     }),
     text: `Bonjour,\n\nTu as demandé à recevoir la blague du jour sur ${site}.\nConfirme ton adresse en ouvrant ce lien :\n${confirmUrl}\n\n${schedule()}\n\nSi tu n’as rien demandé, ignore cet e-mail : tu ne recevras rien d’autre.\n\n— ${site}`,
   };
