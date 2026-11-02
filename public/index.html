@@ -128,6 +128,16 @@
     </form>
   </dialog>
 
+  <div class="rate" id="rate" role="dialog" aria-labelledby="rate-title" hidden>
+    <div class="rate-head">
+      <p class="rate-title" id="rate-title">C’est drôle à quel point ?</p>
+      <button class="install-close" id="rate-close" type="button" aria-label="Fermer">✕</button>
+    </div>
+    <div class="rate-scale" id="rate-scale" role="group" aria-label="Note sur 10"></div>
+    <div class="rate-legend" aria-hidden="true"><span>😐 Pas drôle</span><span>Très drôle 😂</span></div>
+    <p class="rate-thanks" id="rate-thanks" role="status" hidden></p>
+  </div>
+
   <div class="install" id="install" role="dialog" aria-labelledby="install-title" hidden>
     <img class="install-icon" src="/icons/icon-192.png" width="44" height="44" alt="">
     <div class="install-text">

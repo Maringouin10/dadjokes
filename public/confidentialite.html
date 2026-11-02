@@ -34,12 +34,16 @@
         appareil (Apple, Google, Mozilla ou Microsoft)</td><td>T’envoyer la notification de la blague</td>
         <td>Jusqu’à ce que tu les désactives ou que l’abonnement expire</td></tr>
       <tr><td><b>Statistiques de visites</b> : pays et ville (fournis par Cloudflare), type d’appareil, site
-        d’origine, provenance (code QR, appli, recherche). Pour compter les visiteurs uniques, une empreinte
+        d’origine, provenance (code QR, appli, recherche) et, pour un code QR fait pour un lieu (une école…), le nom de ce
+        code. Pour compter les visiteurs uniques, une empreinte
         irréversible de l’adresse IP et du navigateur.</td><td>Savoir combien de personnes lisent les blagues</td>
         <td>Totaux par jour : 400 jours. Empreinte : 2 jours au plus. L’adresse IP n’est jamais enregistrée.</td></tr>
       <tr><td><b>Signalement d’une blague</b> : empreinte irréversible d’un identifiant aléatoire gardé par ton
         navigateur et de ton adresse IP avec ton navigateur</td><td>Empêcher qu’un même appareil signale plusieurs
         fois</td><td>Supprimée au changement de blague</td></tr>
+      <tr><td><b>Note d’une blague</b> (sur 10) : la note, et une empreinte irréversible d’un identifiant aléatoire
+        gardé par ton navigateur</td><td>Connaître les blagues préférées; un seul vote par appareil</td><td>La note
+        est gardée dans les totaux (anonymes); l’empreinte est supprimée au changement de blague</td></tr>
       <tr><td><b>Demande d’étiquettes</b> (page /ads) : numéro de casier, nom (facultatif), note</td><td>Te
         livrer les étiquettes</td><td>Le temps de traiter la demande; supprimée sur demande</td></tr>
     </table>
@@ -48,7 +52,8 @@
     <h2>Témoins (cookies) et stockage dans ton navigateur</h2>
     <p>Le site public n’utilise <b>aucun témoin</b> ni outil de suivi publicitaire. Il garde seulement dans ton
       navigateur (stockage local) : un identifiant aléatoire si tu utilises l’appli installée (pour compter les
-      installations), un identifiant aléatoire si tu signales une blague, la blague que tu as signalée et la date à
+      installations), un identifiant aléatoire si tu signales ou notes une blague, la dernière blague que tu as signalée,
+      notée ou dont tu as fermé la note, et la date à
       laquelle tu as fermé la suggestion d’installer l’appli. Tu peux les effacer en vidant les données du site dans
       ton navigateur. La vérification anti-robot de Cloudflare (Turnstile) n’est chargée que lorsque tu t’abonnes
       par courriel ou signales une blague.</p>

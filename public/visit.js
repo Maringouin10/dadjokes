@@ -6,7 +6,8 @@
   try { if (sessionStorage.getItem('visit')) return; } catch { /* storage blocked */ }
 
   const url = new URL(location.href);
-  const qr = url.searchParams.has('qr');
+  // ?qr = main QR code, ?qr=<name> = a QR code made for one place (a school…).
+  const qr = url.searchParams.has('qr') ? (url.searchParams.get('qr') || true) : false;
   if (qr) {
     url.searchParams.delete('qr'); // shared links must not count as scans
     history.replaceState(history.state, '', url.pathname + url.search + url.hash);

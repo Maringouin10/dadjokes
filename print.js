@@ -58,7 +58,7 @@ function fitLine(doc, text, font, width, max, min) {
 
 // Thermal label (3 × 1 in by default): QR on the left, title, text and address on the right.
 // One label per page: print `copies` pages.
-function labelPdf(copies = 1) {
+function labelPdf(copies = 1, qrUrl = config.QR_URL) {
   const w = config.LABEL_WIDTH_IN * INCH;
   const h = config.LABEL_HEIGHT_IN * INCH;
   const doc = new PDFDocument({ size: [w, h], margin: 0, autoFirstPage: false, info: { Title: `${config.SITE_NAME} – étiquette` } });
@@ -70,7 +70,7 @@ function labelPdf(copies = 1) {
 
   for (let i = 0; i < copies; i++) {
     doc.addPage();
-    drawQr(doc, config.QR_URL, pad, (h - qr) / 2, qr, 'M');
+    drawQr(doc, qrUrl, pad, (h - qr) / 2, qr, 'M');
 
     // Title, text and address share the height: title ~38 %, text ~42 %, address ~20 %.
     const titleSize = fitText(doc, config.LABEL_TITLE, 'Helvetica-Bold', textW, textH * 0.38, h * 0.2, 5);
@@ -92,7 +92,7 @@ function labelPdf(copies = 1) {
 }
 
 // Poster: the same block (title, big QR, text, address) 4 times on one sheet, with cut marks.
-function posterPdf() {
+function posterPdf(qrUrl = config.QR_URL) {
   const doc = new PDFDocument({ size: config.POSTER_PAGE, margin: 0, info: { Title: `${config.SITE_NAME} – affiche` } });
   const { width, height } = doc.page;
   const cw = width / 2;
@@ -117,7 +117,7 @@ function posterPdf() {
     doc.fillColor('#000').font('Helvetica-Bold').fontSize(titleSize)
       .text(config.POSTER_TITLE, x0 + pad, y, { width: innerW, align: 'center' });
     y += titleH + gap;
-    drawQr(doc, config.QR_URL, x0 + (cw - qr) / 2, y, qr, 'Q');
+    drawQr(doc, qrUrl, x0 + (cw - qr) / 2, y, qr, 'Q');
     y += qr + gap;
     doc.fillColor('#000').font('Helvetica').fontSize(bodySize).text(config.POSTER_TEXT, x0 + pad, y, { width: innerW, align: 'center' });
     y += bodyH + gap;
@@ -208,7 +208,7 @@ function qrRects(text, x, y, size, ecc) {
   return `<path d="${d}" shape-rendering="crispEdges"/>`;
 }
 
-function labelSvg() {
+function labelSvg(qrUrl = config.QR_URL) {
   const w = config.LABEL_WIDTH_IN * INCH;
   const h = config.LABEL_HEIGHT_IN * INCH;
   const pad = Math.min(w, h) * 0.08;
@@ -234,13 +234,13 @@ function labelSvg() {
   const url = textPaths(bold, config.QR_TEXT, urlSize, textX, y, textW);
 
   return `<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}">
-<rect width="${w}" height="${h}" fill="#fff"/><g fill="#000">${qrRects(config.QR_URL, pad, (h - qr) / 2, qr, 'M')}${title}${body}${url}</g></svg>`;
+<rect width="${w}" height="${h}" fill="#fff"/><g fill="#000">${qrRects(qrUrl, pad, (h - qr) / 2, qr, 'M')}${title}${body}${url}</g></svg>`;
 }
 
 // One label as a PNG at `dpi` (300 by default: 900 × 300 px for a 3 × 1 in label).
-function labelPng(dpi = 300) {
+function labelPng(dpi = 300, qrUrl = config.QR_URL) {
   const width = Math.round(config.LABEL_WIDTH_IN * dpi);
-  return new Resvg(labelSvg(), { fitTo: { mode: 'width', value: width }, font: { loadSystemFonts: false } }).render().asPng();
+  return new Resvg(labelSvg(qrUrl), { fitTo: { mode: 'width', value: width }, font: { loadSystemFonts: false } }).render().asPng();
 }
 
 module.exports = { labelPdf, labelPng, posterPdf };

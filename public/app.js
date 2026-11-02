@@ -77,6 +77,7 @@
     renderSource(data);
     els.share.hidden = false;
     updateReportButton();
+    if (!data.punchline) askRatingSoon(8000); // one-part joke: give time to read it
     scheduleRefresh(new Date(data.nextChangeAt).getTime());
   }
 
@@ -154,6 +155,7 @@
     if (animate) els.flip.classList.add('is-animating');
     angle += direction < 0 ? -180 : 180;
     applyAngle();
+    if (flipped) askRatingSoon(1500); // the punchline is read: ask how funny it was
     if (!animate) return;
     const { anim } = window.FlipAnimations.play(els.flipInner, from, angle, { particles: flipped });
     running = anim;
@@ -618,6 +620,59 @@
     }
   });
 
+  // ---------- Rating pop-up (how funny, out of 10) ----------
+  // Asked once per joke, after the punchline. ✕ hides it until the next joke.
+
+  const rate = $('rate');
+  const rateScale = $('rate-scale');
+  let rateTimer = null;
+
+  for (let n = 1; n <= 10; n++) {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.textContent = String(n);
+    b.setAttribute('aria-label', `${n} sur 10`);
+    b.addEventListener('click', () => sendRating(n, b));
+    rateScale.append(b);
+  }
+
+  function askRatingSoon(delay) {
+    clearTimeout(rateTimer);
+    rateTimer = setTimeout(() => {
+      const id = current && current.id;
+      if (!id || current.unavailable || storageGet('rated') === id || storageGet('rate-dismissed') === id) return;
+      if (document.querySelector('dialog[open]')) return askRatingSoon(3000); // a sheet is open: wait
+      install.hidden = true; // one pop-up at a time
+      rateScale.hidden = false;
+      $('rate-thanks').hidden = true;
+      rateScale.querySelectorAll('button').forEach((b) => { b.disabled = false; b.removeAttribute('aria-pressed'); });
+      rate.hidden = false;
+    }, delay);
+  }
+
+  async function sendRating(score, button) {
+    const id = current && current.id;
+    if (!id) return;
+    rateScale.querySelectorAll('button').forEach((b) => { b.disabled = true; });
+    button.setAttribute('aria-pressed', 'true');
+    storageSet('rated', id);
+    const thanks = $('rate-thanks');
+    try {
+      const { average, count } = await postJson('/api/rate', { id, score, device: deviceId() });
+      thanks.textContent = `Merci ! Moyenne : ${average.toLocaleString('fr-FR', { maximumFractionDigits: 1 })}/10 (${count} vote${count > 1 ? 's' : ''})`;
+    } catch {
+      thanks.textContent = 'Merci !';
+    }
+    rateScale.hidden = true;
+    thanks.hidden = false;
+    setTimeout(() => { rate.hidden = true; }, 2500);
+  }
+
+  $('rate-close').addEventListener('click', () => {
+    rate.hidden = true;
+    if (current && current.id) storageSet('rate-dismissed', current.id);
+  });
+
   // ---------- Install pop-up (phones only) ----------
   // Shown once in a while on phones, outside the installed app. ✕ hides it for 30 days.
 
@@ -638,7 +693,7 @@
   }
 
   function showInstall() {
-    if (!isPhone || isStandalone || dismissedRecently() || !install.hidden) return;
+    if (!isPhone || isStandalone || dismissedRecently() || !install.hidden || !rate.hidden) return;
     if (installEvent) {
       $('install-help').textContent = 'Ajoute la blague à ton écran d’accueil, en un geste.';
       installAdd.hidden = false;

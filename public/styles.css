@@ -483,7 +483,7 @@ a.button { display: inline-flex; align-items: center; justify-content: center; t
 
 /* ---------- Install pop-up (phones only) ---------- */
 
-.install {
+.install, .rate {
   position: fixed;
   left: 12px;
   right: 12px;
@@ -501,7 +501,7 @@ a.button { display: inline-flex; align-items: center; justify-content: center; t
   box-shadow: 0 10px 40px rgba(7, 45, 89, 0.25);
   animation: sheet-in 0.35s cubic-bezier(0.2, 0.8, 0.2, 1);
 }
-.install[hidden] { display: none; }
+.install[hidden], .rate[hidden] { display: none; }
 .install-icon { flex: none; border-radius: 10px; }
 .install-text { flex: 1; min-width: 0; }
 .install-title { margin: 0; font-weight: 700; font-size: 1rem; }
@@ -560,3 +560,27 @@ a.button { display: inline-flex; align-items: center; justify-content: center; t
 .legal th, .legal td { text-align: left; vertical-align: top; padding: 8px 8px 8px 0; border-top: 1px solid var(--separator); }
 .legal .legal-back { display: inline-block; margin-bottom: 8px; }
 .captcha { font-size: 0.875rem; color: var(--secondary); text-align: center; }
+
+/* ---------- Rating pop-up ---------- */
+
+.rate { flex-direction: column; align-items: stretch; gap: 8px; padding: 10px 8px 12px 16px; }
+.rate-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.rate-title { margin: 0; font-weight: 700; font-size: 1rem; }
+.rate-scale { display: grid; grid-template-columns: repeat(10, 1fr); gap: 4px; padding-right: 8px; }
+.rate-scale button {
+  min-height: 44px;
+  padding: 0;
+  border: 0;
+  border-radius: 10px;
+  background: var(--fill);
+  color: var(--label);
+  font: inherit;
+  font-size: 1rem;
+  font-weight: 600;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+.rate-scale button:hover, .rate-scale button:focus-visible { background: var(--accent); color: var(--on-accent); outline: none; }
+.rate-scale button[aria-pressed="true"] { background: var(--accent); color: var(--on-accent); }
+.rate-legend { display: flex; justify-content: space-between; padding-right: 8px; font-size: 0.75rem; color: var(--secondary); }
+.rate-thanks { margin: 0; padding-right: 8px; text-align: center; font-weight: 600; color: var(--accent-text); }

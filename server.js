@@ -224,7 +224,9 @@ async function notifyNewJoke() {
   if (store.notified === dayKey) return;
   store.notified = dayKey;
   // Reports are only needed for the current joke: drop the older ones.
-  for (const [day, old] of Object.entries(store.days)) if (day !== dayKey) delete old.reports;
+  for (const [day, old] of Object.entries(store.days)) {
+    if (day !== dayKey) { delete old.reports; delete old.raters; } // the totals stay
+  }
   await saveStore().catch((err) => console.error('[store] save failed:', err.message));
   console.log(`[notify] ${dayKey}`);
   await notifier.notifyAll(joke, dayKey);
@@ -396,6 +398,30 @@ async function handleReport(req, res) {
   return sendJson(res, 200, { ok: true, outcome });
 }
 
+// ---------- Ratings (how funny, out of 10) ----------
+// One rating per device and per joke (random id kept by the browser, hashed). No network check here:
+// a whole school shares one IP address.
+
+async function handleRate(req, res) {
+  const body = await readJson(req);
+  const { joke } = await getTodayJoke();
+  if (joke.unavailable || body.id !== joke.id) return sendJson(res, 409, { error: 'La blague a changé entre-temps.' });
+  const score = Number(body.score);
+  if (!Number.isInteger(score) || score < 1 || score > 10) return sendJson(res, 400, { error: 'Note invalide.' });
+  if (typeof body.device !== 'string' || !/^[a-f0-9]{32}$/.test(body.device)) return sendJson(res, 400, { error: 'Appareil non reconnu.' });
+  const device = hashed(`rate|${body.device}`);
+  joke.raters ||= [];
+  joke.ratings ||= { sum: 0, count: 0, dist: Array(10).fill(0) };
+  if (!joke.raters.includes(device)) {
+    joke.raters.push(device);
+    joke.ratings.sum += score;
+    joke.ratings.count += 1;
+    joke.ratings.dist[score - 1] += 1;
+    await saveStore().catch((err) => console.error('[store] save failed:', err.message));
+  }
+  return sendJson(res, 200, { ok: true, average: joke.ratings.sum / joke.ratings.count, count: joke.ratings.count });
+}
+
 function sendJson(res, status, data) {
   send(res, status, JSON.stringify(data), { 'Content-Type': MIME['.json'], 'Cache-Control': 'no-store' });
 }
@@ -435,6 +461,7 @@ async function handleSubscriptions(req, res, pathname, searchParams) {
   }
 
   if (pathname === '/api/report' && req.method === 'POST') return handleReport(req, res);
+  if (pathname === '/api/rate' && req.method === 'POST') return handleRate(req, res);
 
   if (pathname === '/api/email/subscribe' && req.method === 'POST') {
     const body = await readJson(req);
@@ -542,7 +569,7 @@ const notifier = createNotifier({
   getCurrentJoke: () => getTodayJoke().then(({ dayKey, joke }) => ({ key: dayKey, joke })),
 });
 const ads = createAds({ dataDir: DATA_DIR });
-const stats = createStats({ dataDir: DATA_DIR, ads, diagnose: () => notifier.diagnose() });
+const stats = createStats({ dataDir: DATA_DIR, ads, diagnose: () => notifier.diagnose(), getJokes: () => store.days });
 console.log(`[stats] ${stats.diagnose()}`);
 // Settings changed in /admin: the joke change time may have moved.
 config.onChange((keys) => {

@@ -80,9 +80,9 @@ function countryName(code) {
   }
 }
 
-function createStats({ dataDir, ads, diagnose: diagnoseNotifications }) {
+function createStats({ dataDir, ads, diagnose: diagnoseNotifications, getJokes = () => ({}) }) {
   const file = path.join(dataDir, 'stats.json');
-  let data = { salt: crypto.randomBytes(16).toString('hex'), days: {}, hashes: {}, installs: {} };
+  let data = { salt: crypto.randomBytes(16).toString('hex'), days: {}, hashes: {}, installs: {}, campaigns: {} };
   try {
     data = { ...data, ...JSON.parse(fs.readFileSync(file, 'utf8')) };
   } catch { /* first start */ }
@@ -151,7 +151,8 @@ function createStats({ dataDir, ads, diagnose: diagnoseNotifications }) {
       return scheduleSave();
     }
     const ref = referrerHost(body.ref, req.headers.host);
-    const origin = originOf({ qr: body.qr === true, pwa: body.pwa === true, ref });
+    const origin = originOf({ qr: body.qr === true || typeof body.qr === 'string', pwa: body.pwa === true, ref });
+    const campaign = typeof body.qr === 'string' && Object.hasOwn(data.campaigns, body.qr) ? body.qr : null;
     if (!origin) {
       day.others += 1;
       return scheduleSave();
@@ -168,6 +169,14 @@ function createStats({ dataDir, ads, diagnose: diagnoseNotifications }) {
     if (!seen.includes(visitor)) {
       seen.push(visitor);
       day.uniques += 1;
+    }
+    if (campaign) {
+      const c = ((day.campaigns ||= {})[campaign] ||= { views: 0, uniques: 0 });
+      c.views += 1;
+      if (!seen.includes(`${campaign}:${visitor}`)) {
+        seen.push(`${campaign}:${visitor}`);
+        c.uniques += 1;
+      }
     }
     bump(day.origins, origin);
     bump(day.countries, country);
@@ -238,7 +247,7 @@ function createStats({ dataDir, ads, diagnose: diagnoseNotifications }) {
     let body;
     try { body = JSON.parse((await readBody(req)) || '{}'); } catch { return json(res, 400, { error: 'json' }); }
     await record(req, {
-      qr: body.qr,
+      qr: typeof body.qr === 'string' ? body.qr.slice(0, 40) : body.qr,
       pwa: body.pwa,
       install: body.install,
       ref: typeof body.ref === 'string' ? body.ref.slice(0, 300) : '',
@@ -292,6 +301,105 @@ textarea,select{width:100%;min-height:44px;border:1px solid var(--sep);border-ra
       + `<td>${n.toLocaleString('fr-FR')} <small style="color:var(--secondary)">${Math.round((n / Math.max(1, total)) * 100)} %</small></td></tr>`).join('')}</table>`;
   }
 
+  // ---------- QR codes per place ----------
+  // Each one points to QR_URL with ?qr=<slug>; its scans are counted apart (views and uniques per day).
+
+  function slugify(name) {
+    const base = name.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase()
+      .replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 30) || 'qr';
+    let slug = base;
+    for (let i = 2; Object.hasOwn(data.campaigns, slug) || slug === 'new'; i++) slug = `${base}-${i}`;
+    return slug;
+  }
+
+  function campaignUrl(slug) {
+    if (!slug) return config.QR_URL;
+    const url = new URL(config.QR_URL);
+    url.searchParams.set('qr', slug);
+    return url.toString();
+  }
+
+  function campaignTotals(slug, keys) {
+    const pick = (k) => data.days[k]?.campaigns?.[slug] || { views: 0, uniques: 0 };
+    const all = Object.keys(data.days).reduce((n, k) => n + pick(k).views, 0);
+    const period = keys.map((k) => ({ k, ...pick(k) }));
+    return { all, period, views: period.reduce((n, d) => n + d.views, 0), uniques: period.reduce((n, d) => n + d.uniques, 0) };
+  }
+
+  const fileName = (slug, suffix) => `blaguedujour-${slug || 'qr'}${suffix}`;
+
+  function downloadLinks(slug) {
+    const q = slug ? `?c=${encodeURIComponent(slug)}` : '';
+    return `<a class="button" href="/admin/qr.png${q}" download="${fileName(slug, '.png')}">QR PNG</a>
+<a class="button alt" href="/admin/qr.svg${q}" download="${fileName(slug, '.svg')}">QR SVG</a>
+<a class="button alt" href="/admin/label.png${q}" download="${fileName(slug, '-etiquette.png')}">Étiquette PNG</a>
+<a class="button alt" href="/admin/label.pdf${q}">Étiquette PDF</a>
+<a class="button alt" href="/admin/poster.pdf${q}">Affiche PDF</a>`;
+  }
+
+  function lastDays(count) {
+    const keys = [];
+    for (let i = count - 1; i >= 0; i--) keys.push(dayKey(new Date(Date.now() - i * 86400e3)));
+    return keys;
+  }
+
+  function campaignsCard() {
+    const keys = lastDays(config.STATS_DAYS);
+    const fmt = (n) => n.toLocaleString('fr-FR');
+    const rows = Object.entries(data.campaigns)
+      .map(([slug, c]) => ({ slug, ...c, ...campaignTotals(slug, keys) }))
+      .sort((a, b) => b.views - a.views)
+      .map((c) => `<tr><td><a href="/admin/qr/${encodeURIComponent(c.slug)}" style="color:var(--label);font-weight:600">${escapeHtml(c.name)}</a>
+<br><small style="color:var(--secondary)">${escapeHtml(campaignUrl(c.slug))}</small></td>
+<td>${fmt(c.views)} <small style="color:var(--secondary)">${config.STATS_DAYS} j · ${fmt(c.uniques)} uniques · ${fmt(c.all)} au total</small></td></tr>`).join('');
+    return `<div class="card" style="margin-top:16px"><h2>Codes QR par lieu</h2>
+<p class="sub" style="margin-bottom:12px">Crée un code QR pour une école, un local… Ses scans sont comptés à part.</p>
+<form class="actions" method="post" action="/admin/qr/new" style="margin-bottom:12px">
+<input name="name" required maxlength="60" placeholder="Nom (ex. École Sainte-Marie)" style="flex:1;min-width:200px;width:auto;margin:0">
+<button type="submit">Créer le code QR</button></form>
+${rows ? `<table>${rows}</table>` : '<p class="empty">Aucun code QR par lieu pour l’instant.</p>'}</div>`;
+  }
+
+  function campaignPage(slug) {
+    const c = data.campaigns[slug];
+    const keys = lastDays(config.STATS_DAYS);
+    const t = campaignTotals(slug, keys);
+    const fmt = (n) => n.toLocaleString('fr-FR');
+    const max = Math.max(1, ...t.period.map((d) => d.views));
+    const dayLabel = (k) => k.slice(5).replace('-', '/');
+    const today = t.period[t.period.length - 1];
+    return page(`${c.name} · Admin`, `<main>
+<div class="top"><div><h1>${escapeHtml(c.name)}</h1><p class="sub">Code QR créé le ${escapeHtml(c.createdAt.slice(0, 10))} · mène à <b>${escapeHtml(campaignUrl(slug))}</b></p></div>
+<div class="actions"><a class="button alt" href="/admin">← Statistiques</a></div></div>
+<div class="kpis">
+<div class="kpi"><b>${fmt(t.all)}</b><span>Scans au total</span></div>
+<div class="kpi"><b>${fmt(today.views)}</b><span>Aujourd’hui · ${fmt(today.uniques)} uniques</span></div>
+<div class="kpi"><b>${fmt(t.period.slice(-7).reduce((n, d) => n + d.views, 0))}</b><span>7 derniers jours</span></div>
+<div class="kpi"><b>${fmt(t.views)}</b><span>${config.STATS_DAYS} j · ${fmt(t.uniques)} uniques</span></div></div>
+<div class="card"><h2>Scans par jour</h2>
+<div class="chart" role="img" aria-label="Scans par jour">${t.period.map((d) => `<i style="height:${Math.round((d.views / max) * 100)}%" title="${dayLabel(d.k)} : ${d.views} scans, ${d.uniques} uniques"></i>`).join('')}</div>
+<div class="axis"><span>${dayLabel(keys[0])}</span><span>max ${fmt(max)}/jour</span><span>${dayLabel(keys[keys.length - 1])}</span></div></div>
+<div class="card"><h2>Télécharger</h2><div class="qr">
+<img src="/admin/qr.png?size=400&amp;c=${encodeURIComponent(slug)}" alt="Code QR ${escapeHtml(c.name)}" width="200" height="200">
+<div class="actions">${downloadLinks(slug)}</div></div></div>
+<div class="card"><h2>Supprimer</h2><p class="sub">Le code QR imprimé continuera de mener au site, mais ses scans ne seront plus comptés à part.</p>
+<form method="post" action="/admin/qr/${encodeURIComponent(slug)}/delete"><button class="alt" type="submit">Supprimer ce code QR</button></form></div>
+</main>`);
+  }
+
+  // ---------- Joke ratings ----------
+
+  function ratingsCard() {
+    const days = Object.entries(getJokes()).filter(([, j]) => j.ratings?.count).sort(([a], [b]) => (a < b ? 1 : -1)).slice(0, 14);
+    if (!days.length) return '<div class="card" style="margin-top:16px"><h2>Notes des blagues</h2><p class="empty">Pas encore de note.</p></div>';
+    const rows = days.map(([day, j]) => {
+      const avg = j.ratings.sum / j.ratings.count;
+      return `<tr><td>${escapeHtml(day.slice(5).replace('-', '/'))} · ${escapeHtml(j.text.split('\n')[0].slice(0, 70))}<span class="bar" style="width:${Math.round(avg * 10)}%"></span></td>
+<td><b>${avg.toLocaleString('fr-FR', { maximumFractionDigits: 1 })}</b>/10 <small style="color:var(--secondary)">${j.ratings.count} vote${j.ratings.count > 1 ? 's' : ''}</small></td></tr>`;
+    }).join('');
+    return `<div class="card" style="margin-top:16px"><h2>Notes des blagues (sur 10)</h2><table>${rows}</table></div>`;
+  }
+
   function dashboard() {
     today();
     const DASHBOARD_DAYS = config.STATS_DAYS;
@@ -335,6 +443,8 @@ textarea,select{width:100%;min-height:44px;border:1px solid var(--sep);border-ra
 <div class="card"><h2>Sites d’origine (${n})</h2>${table(merge('sources'), viewsN)}</div>
 <div class="card"><h2>Appareils (${n})</h2>${table(merge('devices'), viewsN)}</div></div>
 ${ads ? ads.adminHtml() : ''}
+${ratingsCard()}
+${campaignsCard()}
 <div class="card" style="margin-top:16px"><h2>Code QR et impressions</h2><div class="qr">
 <img src="/admin/qr.png?size=400" alt="Code QR vers ${escapeHtml(QR_URL)}" width="200" height="200">
 <div><p class="sub" style="margin-bottom:12px">Mène à <b>${escapeHtml(QR_URL)}</b> (les scans comptent comme « Code QR »).</p>
@@ -451,27 +561,48 @@ ${status ? `<div class="card"><h2>État des notifications</h2><p class="sub" sty
       await ads.handleAdmin(req);
       return reply(res, 303, '', 'text/plain', { ...ADMIN_HEADERS, Location: '/admin' });
     }
+    if (pathname === '/admin/qr/new' && req.method === 'POST') {
+      const name = (new URLSearchParams(await readBody(req)).get('name') || '').trim().slice(0, 60);
+      if (!name) return reply(res, 303, '', 'text/plain', { ...ADMIN_HEADERS, Location: '/admin' });
+      const slug = slugify(name);
+      data.campaigns[slug] = { name, createdAt: new Date().toISOString() };
+      scheduleSave();
+      return reply(res, 303, '', 'text/plain', { ...ADMIN_HEADERS, Location: `/admin/qr/${encodeURIComponent(slug)}` });
+    }
+    const qrMatch = /^\/admin\/qr\/([a-z0-9-]+)(\/delete)?$/.exec(pathname);
+    if (qrMatch && Object.hasOwn(data.campaigns, qrMatch[1])) {
+      if (qrMatch[2] && req.method === 'POST') {
+        delete data.campaigns[qrMatch[1]];
+        scheduleSave();
+        return reply(res, 303, '', 'text/plain', { ...ADMIN_HEADERS, Location: '/admin' });
+      }
+      if (!qrMatch[2]) return html(res, 200, campaignPage(qrMatch[1]));
+    }
     if (req.method !== 'GET' && req.method !== 'HEAD') return reply(res, 405, 'Method not allowed', 'text/plain; charset=utf-8');
+
+    // ?c=<slug>: the files of a QR code made for one place.
+    const slug = Object.hasOwn(data.campaigns, searchParams.get('c') || '') ? searchParams.get('c') : null;
+    const qrUrl = campaignUrl(slug);
 
     if (pathname === '/admin/qr.png') {
       const size = Math.min(4096, Math.max(128, Number(searchParams.get('size')) || 2048));
-      const png = await QRCode.toBuffer(config.QR_URL, { errorCorrectionLevel: 'H', type: 'png', width: size, margin: 4 });
-      return download(res, png, 'image/png', 'blaguedujour-qr.png');
+      const png = await QRCode.toBuffer(qrUrl, { errorCorrectionLevel: 'H', type: 'png', width: size, margin: 4 });
+      return download(res, png, 'image/png', fileName(slug, '.png'));
     }
     if (pathname === '/admin/qr.svg') {
-      const svg = await QRCode.toString(config.QR_URL, { errorCorrectionLevel: 'H', type: 'svg', margin: 4 });
-      return download(res, svg, 'image/svg+xml', 'blaguedujour-qr.svg');
+      const svg = await QRCode.toString(qrUrl, { errorCorrectionLevel: 'H', type: 'svg', margin: 4 });
+      return download(res, svg, 'image/svg+xml', fileName(slug, '.svg'));
     }
     if (pathname === '/admin/label.pdf') {
       const copies = Math.min(500, Math.max(1, Math.floor(Number(searchParams.get('n'))) || 1));
-      return download(res, await labelPdf(copies), 'application/pdf', 'blaguedujour-etiquettes.pdf');
+      return download(res, await labelPdf(copies, qrUrl), 'application/pdf', fileName(slug, '-etiquettes.pdf'));
     }
     if (pathname === '/admin/label.png') {
       const dpi = Math.min(1200, Math.max(100, Math.floor(Number(searchParams.get('dpi'))) || 300));
-      return download(res, labelPng(dpi), 'image/png', 'blaguedujour-etiquette.png');
+      return download(res, labelPng(dpi, qrUrl), 'image/png', fileName(slug, '-etiquette.png'));
     }
     if (pathname === '/admin/poster.pdf') {
-      return download(res, await posterPdf(), 'application/pdf', 'blaguedujour-affiche.pdf');
+      return download(res, await posterPdf(qrUrl), 'application/pdf', fileName(slug, '-affiche.pdf'));
     }
     return reply(res, 404, 'Not found', 'text/plain; charset=utf-8');
   }

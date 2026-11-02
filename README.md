@@ -67,6 +67,13 @@ To keep e-mails out of spam: add a DMARC record in your DNS (`TXT _dmarc.yourdom
 `v=DMARC1; p=none;`), turn off click and open tracking for the domain in Resend, and set
 `EMAIL_REPLY_TO` to a real mailbox. The startup report warns when DMARC is missing.
 
+### QR codes per place and ratings
+
+- In `/admin` → **Codes QR par lieu**, name a QR code (e.g. a school): it points to `QR_URL?qr=<name>` and
+  its scans are counted apart (per day, uniques). Its page has the QR (PNG/SVG), label (PNG/PDF) and poster.
+- After the punchline, a dismissible pop-up asks how funny the joke is (1–10), once per device and joke.
+  Averages are shown in `/admin`.
+
 ### Anti-robot, reports and Québec privacy law (Loi 25)
 
 - **Cloudflare Turnstile** (`TURNSTILE_SITE_KEY`, `TURNSTILE_SECRET_KEY`) protects the e-mail sign-up and
