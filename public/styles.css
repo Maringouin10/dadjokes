@@ -180,6 +180,7 @@ body {
 /* ---------- Flip card (two-part jokes) ---------- */
 
 .flip {
+  position: relative;
   flex: 1;
   min-height: 0;
   display: flex;
@@ -584,3 +585,36 @@ a.button { display: inline-flex; align-items: center; justify-content: center; t
 .rate-scale button[aria-pressed="true"] { background: var(--accent); color: var(--on-accent); }
 .rate-legend { display: flex; justify-content: space-between; padding-right: 8px; font-size: 0.75rem; color: var(--secondary); }
 .rate-thanks { margin: 0; padding-right: 8px; text-align: center; font-weight: 600; color: var(--accent-text); }
+
+/* ---------- "How to flip" hint (after 8 s without flipping) ---------- */
+
+.flip-coach {
+  position: absolute;
+  left: 50%;
+  bottom: 18px;
+  z-index: 2;
+  margin: 0;
+  padding: 10px 16px;
+  border-radius: 980px;
+  background: var(--label);
+  color: var(--bg);
+  font-size: 0.9375rem;
+  font-weight: 600;
+  width: max-content;
+  max-width: calc(100% - 32px);
+  text-align: center;
+  transform: translateX(-50%);
+  box-shadow: 0 8px 24px rgba(7, 45, 89, 0.25);
+  pointer-events: none;
+  animation: coach-in 0.4s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+.coach-hand { display: inline-block; animation: coach-swipe 1.6s ease-in-out infinite; }
+
+@keyframes coach-in { from { opacity: 0; transform: translate(-50%, 10px); } to { opacity: 1; transform: translate(-50%, 0); } }
+@keyframes coach-swipe {
+  0%, 100% { transform: translateX(0) rotate(0); }
+  40% { transform: translateX(10px) rotate(12deg); }
+  70% { transform: translateX(-4px) rotate(-6deg); }
+}
+@media (max-width: 380px) { .flip-coach { font-size: 0.8125rem; padding: 8px 12px; } }
+@media (prefers-reduced-motion: reduce) { .coach-hand { animation: none; } }

@@ -13,6 +13,7 @@ const { createStats } = require('./stats');
 const { createAds } = require('./ads');
 const config = require('./config');
 const turnstile = require('./turnstile');
+const moderation = require('./moderation');
 const crypto = require('node:crypto');
 
 const PORT = Number(process.env.PORT) || 8002;
@@ -175,7 +176,16 @@ async function pickNewJoke(dayKey) {
     for (let attempt = 0; attempt < 10; attempt++) {
       try {
         const joke = await source();
-        if (acceptable(joke.text) && !seen.has(joke.id)) return { ...joke, lang: 'fr' };
+        if (!acceptable(joke.text) || seen.has(joke.id) || (store.rejected || []).includes(joke.id)) continue;
+        const check = await moderation.moderate(joke.text);
+        if (check.ok === false) {
+          // Refused by Groq: remembered so it is never checked (or shown) again.
+          store.rejected = [...(store.rejected || []), joke.id].slice(-2000);
+          console.log(`[groq] refusée ${joke.id} : ${check.reason}`);
+          continue;
+        }
+        if (check.ok === null) console.warn(`[groq] vérification impossible (${check.error}), blague gardée : ${joke.id}`);
+        return { ...joke, lang: 'fr', moderated: check.ok === true && !check.skipped };
       } catch (err) {
         console.warn(`[joke] ${source.name} failed: ${err.message}`);
         break;
@@ -582,6 +592,7 @@ scheduleRefresh();
 notifyNewJoke().catch((err) => console.error(err));
 server.listen(PORT, () => console.log(`Dad Jokes listening on :${PORT}`));
 notifier.diagnose().then((lines) => console.log(['[config] Notifications :', ...lines].join('\n')));
+moderation.diagnose().then((line) => console.log(`[config] Blagues : ${line}`));
 
 for (const signal of ['SIGINT', 'SIGTERM']) {
   process.on(signal, () => server.close(() => process.exit(0)));

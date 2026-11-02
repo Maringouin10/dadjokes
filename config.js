@@ -18,6 +18,8 @@ const SETTINGS = [
   { group: 'Site', key: 'SITE_NAME', label: 'Nom du site', type: 'text', def: 'La blague plate du jour' },
 
   { group: 'Blagues', key: 'BLAGUES_API_TOKEN', label: 'Clé Blagues API', type: 'secret', def: '', help: 'Meilleures blagues : clé gratuite sur blagues-api.fr' },
+  { group: 'Blagues', key: 'GROQ_API_KEY', label: 'Clé API Groq (vérification des blagues)', type: 'secret', def: '', help: 'Gratuite sur console.groq.com. Chaque nouvelle blague est vérifiée par une IA avant d’être affichée.' },
+  { group: 'Blagues', key: 'GROQ_MODEL', label: 'Modèle Groq', type: 'text', def: 'llama-3.3-70b-versatile', help: 'Voir console.groq.com/docs/models' },
   { group: 'Blagues', key: 'TIME_ZONE', label: 'Fuseau horaire', type: 'text', def: 'America/New_York', validate: validTimeZone },
   { group: 'Blagues', key: 'CHANGE_HOUR', label: 'Heure du changement de blague (0-23)', type: 'number', def: 12, min: 0, max: 23 },
   { group: 'Blagues', key: 'HISTORY_DAYS', label: 'Jours d’historique', type: 'number', def: 7, min: 1, max: 60 },

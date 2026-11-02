@@ -68,6 +68,7 @@
       els.flip.hidden = false;
       resetCard();
       revealFromLink();
+      scheduleCoach();
     } else {
       els.joke.textContent = data.joke;
       els.card.hidden = false;
@@ -120,6 +121,44 @@
     setTimeout(() => { if (!flipped) turn(1); }, 700);
   }
 
+  // ---------- "How to flip" hint ----------
+  // 8 s on the question without flipping: the card peeks and a bubble shows what to do,
+  // again every few seconds until the card is turned.
+
+  const coach = $('flip-coach');
+  let coachTimer = null;
+  let everFlipped = false;
+
+  function scheduleCoach() {
+    clearTimeout(coachTimer);
+    coach.hidden = true;
+    everFlipped = false;
+    coachTimer = setTimeout(runCoach, 8000);
+  }
+
+  function runCoach() {
+    if (everFlipped || els.flip.hidden) return;
+    const busy = document.querySelector('dialog[open]') || drag || running;
+    if (!busy) {
+      coach.hidden = false;
+      if (!reducedMotion.matches && angle === 0) {
+        els.flipInner.animate([
+          { transform: 'rotateY(0deg)' },
+          { transform: 'rotateY(-30deg)', offset: 0.35 },
+          { transform: 'rotateY(8deg)', offset: 0.7 },
+          { transform: 'rotateY(0deg)' },
+        ], { duration: 1300, easing: 'ease-in-out' });
+      }
+    }
+    coachTimer = setTimeout(runCoach, 5000);
+  }
+
+  function stopCoach() {
+    everFlipped = true;
+    clearTimeout(coachTimer);
+    coach.hidden = true;
+  }
+
   // ---------- Flip card: swipe, tap or keyboard ----------
 
   // Continuous angle: each flip adds or removes 180°, so the card always turns the way it was pushed.
@@ -155,6 +194,7 @@
     if (animate) els.flip.classList.add('is-animating');
     angle += direction < 0 ? -180 : 180;
     applyAngle();
+    stopCoach();
     if (flipped) askRatingSoon(1500); // the punchline is read: ask how funny it was
     if (!animate) return;
     const { anim } = window.FlipAnimations.play(els.flipInner, from, angle, { particles: flipped });
@@ -173,6 +213,7 @@
   els.flip.addEventListener('pointerdown', (e) => {
     if (e.button !== 0) return;
     stopAnimation();
+    coach.hidden = true;
     drag = { id: e.pointerId, x: e.clientX, y: e.clientY, t: e.timeStamp, dx: 0, active: false };
   });
 

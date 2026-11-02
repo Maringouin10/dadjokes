@@ -67,6 +67,13 @@ To keep e-mails out of spam: add a DMARC record in your DNS (`TXT _dmarc.yourdom
 `v=DMARC1; p=none;`), turn off click and open tracking for the domain in Resend, and set
 `EMAIL_REPLY_TO` to a real mailbox. The startup report warns when DMARC is missing.
 
+### AI check of each joke (Groq)
+
+Set `GROQ_API_KEY` (free at [console.groq.com](https://console.groq.com)) and every new joke is checked by a
+Groq-hosted model (`GROQ_MODEL`, default `llama-3.3-70b-versatile`) after the word filter: anything that could
+offend students (sexual, stereotypes, violence, drugs, politics…) is refused and never picked again. If Groq is
+unreachable, the joke is kept (word filter only) and a warning is logged.
+
 ### QR codes per place and ratings
 
 - In `/admin` → **Codes QR par lieu**, name a QR code (e.g. a school): it points to `QR_URL?qr=<name>` and
