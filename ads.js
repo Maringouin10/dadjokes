@@ -151,12 +151,12 @@ function createAds({ dataDir }) {
     const total = open.reduce((n, r) => n + r.quantity, 0);
     const row = (r, delivered) => `<tr><td><b>Casier ${escapeHtml(r.locker)}</b> · ${r.quantity} étiquette(s)<br>
 <small style="color:var(--secondary)">${escapeHtml([r.name, r.note].filter(Boolean).join(' · ') || '—')} · ${fmt(delivered ? r.deliveredAt : r.createdAt)}</small></td>
-<td><form method="post" action="/admin/ads" style="display:inline"><input type="hidden" name="id" value="${r.id}">
-<button name="action" value="${delivered ? 'undo' : 'done'}" class="${delivered ? 'alt' : ''}" type="submit">${delivered ? 'Annuler' : 'Livré'}</button>
-<button name="action" value="delete" class="alt" type="submit" aria-label="Supprimer">✕</button></form></td></tr>`;
-    return `<div class="card" style="margin-top:16px"><h2>Demandes d’étiquettes (/ads)${open.length ? ` · ${open.length} en attente, ${total} étiquettes` : ''}</h2>
-${open.length ? `<table>${open.map((r) => row(r, false)).join('')}</table>` : '<p class="empty">Aucune demande en attente.</p>'}
-${done.length ? `<details style="margin-top:12px"><summary>Livrées récemment</summary><table>${done.map((r) => row(r, true)).join('')}</table></details>` : ''}</div>`;
+<td class="n"><form method="post" action="/admin/ads" class="actions" style="justify-content:flex-end"><input type="hidden" name="id" value="${r.id}">
+<button name="action" value="${delivered ? 'undo' : 'done'}" class="sm${delivered ? ' alt' : ''}" type="submit">${delivered ? 'Annuler' : 'Livré'}</button>
+<button name="action" value="delete" class="sm alt" type="submit" aria-label="Supprimer">✕</button></form></td></tr>`;
+    return `<div class="card"><h2>En attente <small>${open.length ? `${open.length} demande${open.length > 1 ? 's' : ''} · ${total} étiquettes` : ''}</small></h2>
+${open.length ? `<table class="rows">${open.map((r) => row(r, false)).join('')}</table>` : '<p class="empty">Aucune demande en attente.</p>'}
+${done.length ? `<details><summary>Livrées récemment</summary><table class="rows">${done.map((r) => row(r, true)).join('')}</table></details>` : ''}</div>`;
   }
 
   async function handleAdmin(req) {
