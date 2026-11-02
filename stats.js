@@ -21,6 +21,14 @@ function safeEqual(a, b) {
   return crypto.timingSafeEqual(sha256(String(a)), sha256(String(b)));
 }
 
+let hourFormat = null;
+function hourOf(date = new Date()) {
+  if (hourFormat?.resolvedOptions().timeZone !== config.TIME_ZONE) {
+    hourFormat = new Intl.DateTimeFormat('en-US', { timeZone: config.TIME_ZONE, hour: 'numeric', hourCycle: 'h23' });
+  }
+  return Number(hourFormat.format(date)) % 24;
+}
+
 let dayFormat = null;
 function dayKey(date = new Date()) {
   if (dayFormat?.resolvedOptions().timeZone !== config.TIME_ZONE) {
@@ -166,6 +174,8 @@ function createStats({ dataDir, ads, diagnose: diagnoseNotifications, getJokes =
     const visitor = crypto.createHash('sha256').update(`${data.salt}|${dayKey()}|${ip}|${ua}`).digest('hex').slice(0, 16);
     const seen = (data.hashes[dayKey()] ||= []);
     day.views += 1;
+    const hour = hourOf();
+    (day.hours ||= Array(24).fill(0))[hour] += 1;
     if (!seen.includes(visitor)) {
       seen.push(visitor);
       day.uniques += 1;
@@ -173,6 +183,7 @@ function createStats({ dataDir, ads, diagnose: diagnoseNotifications, getJokes =
     if (campaign) {
       const c = ((day.campaigns ||= {})[campaign] ||= { views: 0, uniques: 0 });
       c.views += 1;
+      (c.hours ||= Array(24).fill(0))[hour] += 1;
       if (!seen.includes(`${campaign}:${visitor}`)) {
         seen.push(`${campaign}:${visitor}`);
         c.uniques += 1;
@@ -281,6 +292,7 @@ textarea,select{width:100%;min-height:44px;border:1px solid var(--sep);border-ra
 .help{color:var(--secondary)}code{font-size:12px}.reset{font-weight:400!important;color:var(--secondary);display:flex;gap:6px;align-items:center}.reset input{width:auto;min-height:0;margin:0}
 .tag{font-weight:500;font-size:11px;padding:1px 7px;border-radius:8px;background:var(--sep);color:var(--secondary)}.tag-admin{background:var(--accent);color:var(--on-accent)}
 .notice{margin-bottom:16px}.error{color:#d70015}
+.seg{display:flex;gap:4px;padding:4px;margin:0 0 16px;background:var(--sep);border-radius:12px;width:max-content;max-width:100%;overflow-x:auto}.seg a{padding:8px 14px;border-radius:9px;color:var(--label);text-decoration:none;font-weight:600;font-size:14px;white-space:nowrap}.seg a[aria-current]{background:var(--card);box-shadow:0 1px 3px rgba(7,45,89,.15)}
 .savebar{position:sticky;bottom:0;padding:12px 0 max(12px,env(safe-area-inset-bottom));background:linear-gradient(transparent,var(--bg) 40%)}.savebar button{width:100%}`;
 
   const page = (title, inner) => `<!doctype html><html lang="fr"><head><meta charset="utf-8">
@@ -299,6 +311,92 @@ textarea,select{width:100%;min-height:44px;border:1px solid var(--sep);border-ra
     const max = rows[0][1];
     return `<table>${rows.map(([k, n]) => `<tr><td>${label(k)}<span class="bar" style="width:${Math.max(2, Math.round((n / max) * 100))}%"></span></td>`
       + `<td>${n.toLocaleString('fr-FR')} <small style="color:var(--secondary)">${Math.round((n / Math.max(1, total)) * 100)} %</small></td></tr>`).join('')}</table>`;
+  }
+
+  // ---------- Periods: hour, day, week, month, year ----------
+
+  const VIEWS = { heure: 'Heure', jour: 'Jour', semaine: 'Semaine', mois: 'Mois', annee: 'Année' };
+  const MONTHS = ['janv.', 'févr.', 'mars', 'avr.', 'mai', 'juin', 'juil.', 'août', 'sept.', 'oct.', 'nov.', 'déc.'];
+  const short = (k) => `${k.slice(8)}/${k.slice(5, 7)}`;
+
+  // Calendar days from `from` to `to` (YYYY-MM-DD, inclusive).
+  function dayRange(from, to) {
+    const out = [];
+    for (let t = Date.parse(`${from}T00:00:00Z`); t <= Date.parse(`${to}T00:00:00Z`); t += 86400e3) {
+      out.push(new Date(t).toISOString().slice(0, 10));
+    }
+    return out;
+  }
+  const shift = (k, days) => new Date(Date.parse(`${k}T00:00:00Z`) + days * 86400e3).toISOString().slice(0, 10);
+
+  // Buckets of the chosen view. Each has a label, its days (for totals and tables) and, for the
+  // hour view, the hour. `name` describes the whole period.
+  function periodOf(view) {
+    const todayKey = dayKey();
+    if (view === 'heure') {
+      const buckets = [];
+      for (let i = 23; i >= 0; i--) {
+        const d = new Date(Date.now() - i * 3600e3);
+        const h = hourOf(d);
+        buckets.push({ label: `${h} h`, title: `${short(dayKey(d))} ${h} h`, keys: [dayKey(d)], hour: h });
+      }
+      return { name: '24 dernières heures', unit: 'heure', buckets, keys: [...new Set(buckets.map((b) => b.keys[0]))] };
+    }
+    if (view === 'semaine') {
+      const monday = shift(todayKey, -((new Date(`${todayKey}T00:00:00Z`).getUTCDay() + 6) % 7));
+      const buckets = [];
+      for (let w = 11; w >= 0; w--) {
+        const start = shift(monday, -7 * w);
+        buckets.push({ label: short(start), title: `semaine du ${short(start)}`, keys: dayRange(start, shift(start, 6)).filter((k) => k <= todayKey) });
+      }
+      return { name: '12 dernières semaines', unit: 'semaine', buckets, keys: buckets.flatMap((b) => b.keys) };
+    }
+    if (view === 'mois') {
+      const [y, m] = todayKey.split('-').map(Number);
+      const buckets = [];
+      for (let i = 11; i >= 0; i--) {
+        const d = new Date(Date.UTC(y, m - 1 - i, 1));
+        const prefix = d.toISOString().slice(0, 7);
+        const end = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + 1, 0)).toISOString().slice(0, 10);
+        const label = `${MONTHS[d.getUTCMonth()]} ${String(d.getUTCFullYear()).slice(2)}`;
+        buckets.push({ label, title: label, keys: dayRange(`${prefix}-01`, end).filter((k) => k <= todayKey) });
+      }
+      return { name: '12 derniers mois', unit: 'mois', buckets, keys: buckets.flatMap((b) => b.keys) };
+    }
+    if (view === 'annee') {
+      const first = Object.keys(data.days).sort()[0] || todayKey;
+      const buckets = [];
+      for (let y = Number(first.slice(0, 4)); y <= Number(todayKey.slice(0, 4)); y++) {
+        buckets.push({ label: String(y), title: String(y), keys: dayRange(`${y}-01-01`, `${y}-12-31`).filter((k) => k >= first && k <= todayKey) });
+      }
+      return { name: buckets.length > 1 ? 'toutes les années' : `année ${todayKey.slice(0, 4)}`, unit: 'année', buckets, keys: buckets.flatMap((b) => b.keys) };
+    }
+    const buckets = lastDays(config.STATS_DAYS).map((k) => ({ label: short(k), title: short(k), keys: [k] }));
+    return { name: `${config.STATS_DAYS} derniers jours`, unit: 'jour', buckets, keys: buckets.map((b) => b.keys[0]) };
+  }
+
+  // Views and uniques of each bucket. `pick(day)` gives the counters to read ({ views, uniques, hours }).
+  // Uniques are summed per day (a visitor coming back another day counts again); none per hour.
+  function seriesOf(period, pick) {
+    return period.buckets.map((b) => {
+      if (b.hour !== undefined) return { ...b, views: pick(data.days[b.keys[0]])?.hours?.[b.hour] || 0, uniques: null };
+      let views = 0;
+      let uniques = 0;
+      for (const k of b.keys) { const c = pick(data.days[k]); views += c?.views || 0; uniques += c?.uniques || 0; }
+      return { ...b, views, uniques };
+    });
+  }
+
+  function viewSelector(view, base) {
+    return `<nav class="seg" aria-label="Période">${Object.entries(VIEWS).map(([v, label]) => `<a href="${base}?vue=${v}"${v === view ? ' aria-current="page"' : ''}>${label}</a>`).join('')}</nav>`;
+  }
+
+  function chartHtml(series, unitLabel) {
+    const fmt = (n) => n.toLocaleString('fr-FR');
+    const max = Math.max(1, ...series.map((b) => b.views));
+    const tip = (b) => `${b.title} : ${fmt(b.views)} ${unitLabel}${b.uniques !== null ? `, ${fmt(b.uniques)} uniques` : ''}`;
+    return `<div class="chart" role="img" aria-label="${escapeHtml(unitLabel)} par période">${series.map((b) => `<i style="height:${Math.round((b.views / max) * 100)}%" title="${escapeHtml(tip(b))}"></i>`).join('')}</div>
+<div class="axis"><span>${escapeHtml(series[0].label)}</span><span>max ${fmt(max)}</span><span>${escapeHtml(series[series.length - 1].label)}</span></div>`;
   }
 
   // ---------- QR codes per place ----------
@@ -360,25 +458,26 @@ textarea,select{width:100%;min-height:44px;border:1px solid var(--sep);border-ra
 ${rows ? `<table>${rows}</table>` : '<p class="empty">Aucun code QR par lieu pour l’instant.</p>'}</div>`;
   }
 
-  function campaignPage(slug) {
+  function campaignPage(slug, view = 'jour') {
     const c = data.campaigns[slug];
-    const keys = lastDays(config.STATS_DAYS);
-    const t = campaignTotals(slug, keys);
+    const period = periodOf(view);
+    const pick = (d) => d?.campaigns?.[slug];
+    const series = seriesOf(period, pick);
     const fmt = (n) => n.toLocaleString('fr-FR');
-    const max = Math.max(1, ...t.period.map((d) => d.views));
-    const dayLabel = (k) => k.slice(5).replace('-', '/');
-    const today = t.period[t.period.length - 1];
+    const sum = (list, f) => list.reduce((n, x) => n + (f(x) || 0), 0);
+    const today = pick(data.days[dayKey()]) || { views: 0, uniques: 0 };
+    const total = Object.values(data.days).reduce((n, d) => n + (pick(d)?.views || 0), 0);
+    const views = sum(series, (b) => b.views);
     return page(`${c.name} · Admin`, `<main>
 <div class="top"><div><h1>${escapeHtml(c.name)}</h1><p class="sub">Code QR créé le ${escapeHtml(c.createdAt.slice(0, 10))} · mène à <b>${escapeHtml(campaignUrl(slug))}</b></p></div>
 <div class="actions"><a class="button alt" href="/admin">← Statistiques</a></div></div>
+${viewSelector(view, `/admin/qr/${encodeURIComponent(slug)}`)}
 <div class="kpis">
-<div class="kpi"><b>${fmt(t.all)}</b><span>Scans au total</span></div>
+<div class="kpi"><b>${fmt(views)}</b><span>${escapeHtml(period.name)}${view === 'heure' ? '' : ` · ${fmt(sum(series, (b) => b.uniques))} uniques`}</span></div>
 <div class="kpi"><b>${fmt(today.views)}</b><span>Aujourd’hui · ${fmt(today.uniques)} uniques</span></div>
-<div class="kpi"><b>${fmt(t.period.slice(-7).reduce((n, d) => n + d.views, 0))}</b><span>7 derniers jours</span></div>
-<div class="kpi"><b>${fmt(t.views)}</b><span>${config.STATS_DAYS} j · ${fmt(t.uniques)} uniques</span></div></div>
-<div class="card"><h2>Scans par jour</h2>
-<div class="chart" role="img" aria-label="Scans par jour">${t.period.map((d) => `<i style="height:${Math.round((d.views / max) * 100)}%" title="${dayLabel(d.k)} : ${d.views} scans, ${d.uniques} uniques"></i>`).join('')}</div>
-<div class="axis"><span>${dayLabel(keys[0])}</span><span>max ${fmt(max)}/jour</span><span>${dayLabel(keys[keys.length - 1])}</span></div></div>
+<div class="kpi"><b>${fmt(total)}</b><span>Scans au total</span></div></div>
+<div class="card"><h2>Scans par ${escapeHtml(period.unit)} · ${escapeHtml(period.name)}</h2>
+${chartHtml(series, 'scans')}</div>
 <div class="card"><h2>Télécharger</h2><div class="qr">
 <img src="/admin/qr.png?size=400&amp;c=${encodeURIComponent(slug)}" alt="Code QR ${escapeHtml(c.name)}" width="200" height="200">
 <div class="actions">${downloadLinks(slug)}</div></div></div>
@@ -400,48 +499,46 @@ ${rows ? `<table>${rows}</table>` : '<p class="empty">Aucun code QR par lieu pou
     return `<div class="card" style="margin-top:16px"><h2>Notes des blagues (sur 10)</h2><table>${rows}</table></div>`;
   }
 
-  function dashboard() {
+  function dashboard(view = 'jour') {
     today();
-    const DASHBOARD_DAYS = config.STATS_DAYS;
     const QR_URL = config.QR_URL;
-    const keys = [];
-    for (let i = DASHBOARD_DAYS - 1; i >= 0; i--) keys.push(dayKey(new Date(Date.now() - i * 86400e3)));
-    const days = keys.map((k) => ({ k, ...emptyDay(), ...data.days[k] }));
+    const period = periodOf(view);
+    const series = seriesOf(period, (d) => d);
+    const days = period.keys.map((k) => ({ k, ...emptyDay(), ...data.days[k] }));
     const all = Object.values(data.days);
     const sum = (list, f) => list.reduce((n, d) => n + (f(d) || 0), 0);
     const merge = (field) => {
       const out = {};
       for (const d of days) for (const [k, n] of Object.entries(d[field] || {})) out[k] = (out[k] || 0) + n;
-      return Object.entries(out).sort((a, b) => b[1] - a[1]).slice(0, 12);
+      return Object.entries(out).sort((x, y) => y[1] - x[1]).slice(0, 12);
     };
-    const viewsN = sum(days, (d) => d.views);
-    const max = Math.max(1, ...days.map((d) => d.views));
+    const viewsN = sum(series, (b) => b.views);
+    const uniquesN = view === 'heure' ? null : sum(series, (b) => b.uniques);
     const fmt = (n) => n.toLocaleString('fr-FR');
-    const dayLabel = (k) => k.slice(5).replace('-', '/');
-    const last = days[days.length - 1];
-    const n = `${DASHBOARD_DAYS} j`;
+    const last = { ...emptyDay(), ...data.days[dayKey()] };
+    // Tables and other counters: whole days of the period (for "Heure": today and yesterday).
+    const n = view === 'heure' ? 'aujourd’hui et hier' : period.name;
     const installs = Object.values(data.installs || {});
 
     return page('Stats · Admin', `<main>
 <div class="top"><div><h1>Statistiques</h1><p class="sub">Visites humaines : code QR, application installée ou recherche ${escapeHtml(config.HUMAN_REFERRERS.join(', '))} · fuseau ${escapeHtml(config.TIME_ZONE)}</p></div>
 <div class="actions"><a class="button alt" href="/admin/settings">Réglages</a><form method="post" action="/admin/logout"><button class="alt" type="submit">Déconnexion</button></form></div></div>
+${viewSelector(view, '/admin')}
 <div class="kpis">
-<div class="kpi"><b>${fmt(sum(all, (d) => d.views))}</b><span>Visites humaines au total</span></div>
+<div class="kpi"><b>${fmt(viewsN)}</b><span>${escapeHtml(period.name)}${uniquesN !== null ? ` · ${fmt(uniquesN)} uniques` : ''}</span></div>
 <div class="kpi"><b>${fmt(last.views)}</b><span>Aujourd’hui · ${fmt(last.uniques)} visiteurs uniques</span></div>
-<div class="kpi"><b>${fmt(sum(days.slice(-7), (d) => d.views))}</b><span>7 derniers jours</span></div>
-<div class="kpi"><b>${fmt(viewsN)}</b><span>${n} · ${fmt(sum(days, (d) => d.uniques))} uniques</span></div>
-<div class="kpi"><b>${fmt(installs.length)}</b><span>Applis installées (PWA) · ${fmt(installs.filter((i) => i.last >= keys[0]).length)} ouvertes ${n}</span></div>
-<div class="kpi"><b>${fmt(sum(days, (d) => d.others))}</b><span>Autres visites ${n} (non vérifiées)</span></div>
-<div class="kpi"><b>${fmt(sum(days, (d) => d.bots))}</b><span>Robots écartés ${n}</span></div></div>
-<div class="card"><h2>Visites humaines par jour</h2>
-<div class="chart" role="img" aria-label="Visites par jour sur ${DASHBOARD_DAYS} jours">${days.map((d) => `<i style="height:${Math.round((d.views / max) * 100)}%" title="${dayLabel(d.k)} : ${d.views} visites, ${d.uniques} uniques"></i>`).join('')}</div>
-<div class="axis"><span>${dayLabel(keys[0])}</span><span>max ${fmt(max)}/jour</span><span>${dayLabel(keys[keys.length - 1])}</span></div></div>
+<div class="kpi"><b>${fmt(sum(all, (d) => d.views))}</b><span>Visites humaines au total</span></div>
+<div class="kpi"><b>${fmt(installs.length)}</b><span>Applis installées (PWA) · ${fmt(installs.filter((i) => i.last >= period.keys[0]).length)} ouvertes (${escapeHtml(n)})</span></div>
+<div class="kpi"><b>${fmt(sum(days, (d) => d.others))}</b><span>Autres visites, non vérifiées (${escapeHtml(n)})</span></div>
+<div class="kpi"><b>${fmt(sum(days, (d) => d.bots))}</b><span>Robots écartés (${escapeHtml(n)})</span></div></div>
+<div class="card"><h2>Visites humaines par ${escapeHtml(period.unit)} · ${escapeHtml(period.name)}</h2>
+${chartHtml(series, 'visites')}</div>
 <div class="grid">
-<div class="card"><h2>Arrivés par (${n})</h2>${table(merge('origins'), viewsN)}</div>
-<div class="card"><h2>Pays (${n})</h2>${table(merge('countries'), viewsN, undefined, (k) => `${flag(k)} ${escapeHtml(countryName(k))}`)}</div>
-<div class="card"><h2>Villes (${n})</h2>${table(merge('cities'), viewsN, 'Pas de ville (active « Add visitor location headers » dans Cloudflare).')}</div>
-<div class="card"><h2>Sites d’origine (${n})</h2>${table(merge('sources'), viewsN)}</div>
-<div class="card"><h2>Appareils (${n})</h2>${table(merge('devices'), viewsN)}</div></div>
+<div class="card"><h2>Arrivés par (${escapeHtml(n)})</h2>${table(merge('origins'), sum(days, (d) => d.views))}</div>
+<div class="card"><h2>Pays (${escapeHtml(n)})</h2>${table(merge('countries'), sum(days, (d) => d.views), undefined, (k) => `${flag(k)} ${escapeHtml(countryName(k))}`)}</div>
+<div class="card"><h2>Villes (${escapeHtml(n)})</h2>${table(merge('cities'), sum(days, (d) => d.views), 'Pas de ville (active « Add visitor location headers » dans Cloudflare).')}</div>
+<div class="card"><h2>Sites d’origine (${escapeHtml(n)})</h2>${table(merge('sources'), sum(days, (d) => d.views))}</div>
+<div class="card"><h2>Appareils (${escapeHtml(n)})</h2>${table(merge('devices'), sum(days, (d) => d.views))}</div></div>
 ${ads ? ads.adminHtml() : ''}
 ${ratingsCard()}
 ${campaignsCard()}
@@ -524,6 +621,8 @@ ${status ? `<div class="card"><h2>État des notifications</h2><p class="sub" sty
     return reply(res, 303, '', 'text/plain', { ...ADMIN_HEADERS, ...cookie, Location: '/admin/settings?ok' });
   }
 
+  const viewParam = (searchParams) => (Object.hasOwn(VIEWS, searchParams.get('vue') || '') ? searchParams.get('vue') : 'jour');
+
   async function handleAdmin(req, res, pathname, searchParams) {
     if (!config.ADMIN_PASSWORD) return reply(res, 404, 'Not found', 'text/plain; charset=utf-8');
     const ip = clientIp(req);
@@ -548,7 +647,7 @@ ${status ? `<div class="card"><h2>État des notifications</h2><p class="sub" sty
 
     if (pathname === '/admin' || pathname === '/admin/') {
       if (req.method !== 'GET' && req.method !== 'HEAD') return reply(res, 405, 'Method not allowed', 'text/plain; charset=utf-8');
-      return isAdmin(req) ? html(res, 200, dashboard()) : html(res, 401, loginPage());
+      return isAdmin(req) ? html(res, 200, dashboard(viewParam(searchParams))) : html(res, 401, loginPage());
     }
 
     if (!isAdmin(req)) return reply(res, 404, 'Not found', 'text/plain; charset=utf-8');
@@ -576,7 +675,7 @@ ${status ? `<div class="card"><h2>État des notifications</h2><p class="sub" sty
         scheduleSave();
         return reply(res, 303, '', 'text/plain', { ...ADMIN_HEADERS, Location: '/admin' });
       }
-      if (!qrMatch[2]) return html(res, 200, campaignPage(qrMatch[1]));
+      if (!qrMatch[2]) return html(res, 200, campaignPage(qrMatch[1], viewParam(searchParams)));
     }
     if (req.method !== 'GET' && req.method !== 'HEAD') return reply(res, 405, 'Method not allowed', 'text/plain; charset=utf-8');
 
