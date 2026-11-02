@@ -523,21 +523,18 @@ a.button { display: inline-flex; align-items: center; justify-content: center; t
 /* ---------- Report, consent, legal ---------- */
 
 .link-button {
-  align-self: center;
-  min-height: 44px;
-  margin-top: -8px;
-  padding: 0 12px;
+  padding: 4px 2px; /* small inline link in the footer; the line gives it room to tap */
+  margin: -4px 0;
   border: 0;
   background: transparent;
-  color: var(--tertiary);
+  color: inherit;
   font: inherit;
-  font-size: 0.875rem;
   text-decoration: underline;
-  text-underline-offset: 3px;
+  text-underline-offset: 2px;
   cursor: pointer;
 }
 .link-button:hover { color: var(--accent-text); }
-.link-button:disabled { text-decoration: none; cursor: default; color: var(--tertiary); }
+.link-button:disabled { text-decoration: none; cursor: default; }
 
 .check { display: flex; gap: 10px; align-items: flex-start; font-size: 0.875rem; color: var(--secondary); line-height: 1.4; }
 .check input { flex: none; width: 20px; height: 20px; margin: 1px 0 0; accent-color: var(--accent); }
@@ -546,8 +543,8 @@ a.button { display: inline-flex; align-items: center; justify-content: center; t
 .captcha:empty { display: none; }
 .captcha { min-height: 65px; display: flex; justify-content: center; }
 
-.footer .disclaimer { margin: 8px auto 0; max-width: 520px; font-size: 0.75rem; line-height: 1.45; color: var(--tertiary); }
-.footer .legal-links { margin: 8px 0 0; font-size: 0.75rem; }
+.footer .disclaimer { margin: 2px auto 0; }
+.footer .legal-links { margin: 2px 0 0; }
 .footer .legal-links a { color: var(--secondary); }
 
 .removed { color: var(--secondary); font-size: 1.125rem; font-weight: 500; }

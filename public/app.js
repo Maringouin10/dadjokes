@@ -40,7 +40,7 @@
     } else {
       els.source.append(data.source);
     }
-    els.source.append(` · Nouvelle blague ${data.schedule || 'chaque jour à midi'}`);
+    els.source.append(' · contenu externe, nous n’en sommes pas responsables');
   }
 
   function render(data) {
@@ -574,8 +574,9 @@
   function updateReportButton() {
     const done = current && current.id && storageGet('reported') === current.id;
     reportButton.hidden = !current || current.unavailable;
+    $('report-sep').hidden = reportButton.hidden;
     reportButton.disabled = Boolean(done);
-    reportButton.textContent = done ? 'Blague signalée ✓' : 'Signaler cette blague';
+    reportButton.textContent = done ? 'Signalée ✓' : 'Signaler';
   }
 
   reportButton.addEventListener('click', () => {

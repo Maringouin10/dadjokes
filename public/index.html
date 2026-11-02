@@ -58,14 +58,11 @@
     <p class="toast" id="toast" role="status" aria-live="polite"></p>
 
     <p class="next" id="next"></p>
-    <button class="link-button" id="report" type="button" aria-haspopup="dialog" hidden>Signaler cette blague</button>
   </main>
 
   <footer class="footer">
     <p id="source">&nbsp;</p>
-    <p class="disclaimer">Les blagues viennent de sources externes et sont filtrées automatiquement. Nous ne sommes pas
-      responsables de leur contenu : si l’une d’elles est offensante, signale-la.</p>
-    <p class="legal-links"><a href="/confidentialite">Confidentialité</a> · <a href="/conditions">Conditions d’utilisation</a></p>
+    <p class="legal-links"><button class="link-button" id="report" type="button" aria-haspopup="dialog" hidden>Signaler</button><span class="sep" id="report-sep" hidden> · </span><a href="/confidentialite">Confidentialité</a> · <a href="/conditions">Conditions</a></p>
   </footer>
 
   <dialog class="sheet history" id="history-dialog" aria-labelledby="history-title">
