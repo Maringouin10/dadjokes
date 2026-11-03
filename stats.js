@@ -190,6 +190,7 @@ function createStats({ dataDir, ads, diagnose: diagnoseNotifications, getJokes =
       }
     }
     bump(day.origins, origin);
+    ((day.hourOrigins ||= {})[origin] ||= Array(24).fill(0))[hour] += 1; // where visits come from, per hour
     bump(day.countries, country);
     if (city) bump(day.cities, `${String(city).slice(0, 60)}, ${country}`);
     bump(day.sources, ref || 'Direct');
@@ -272,9 +273,11 @@ function createStats({ dataDir, ads, diagnose: diagnoseNotifications, getJokes =
   const css = `
 :root{--bg:#eef7fc;--card:#fff;--ink:#072d59;--muted:#56708f;--faint:#8aa0b8;--line:rgba(7,45,89,.09);--fill:rgba(7,45,89,.05);
 --accent:#fd6e88;--accent-ink:#c93a57;--on-accent:#072d59;--nav:#072d59;--nav-ink:#dbf2fc;--good:#13795b;--bad:#c93a57;
---shadow:0 1px 2px rgba(7,45,89,.04),0 4px 16px rgba(7,45,89,.05);color-scheme:light dark}
+--shadow:0 1px 2px rgba(7,45,89,.04),0 4px 16px rgba(7,45,89,.05);color-scheme:light dark;
+--s1:#2a78d6;--s2:#eb6834;--s3:#1baf7a;--s4:#eda100;--s5:#e87ba4;--s6:#008300;--s7:#6250d6;--s8:#a9b4c0}
 @media(prefers-color-scheme:dark){:root{--bg:#031427;--card:#06223f;--ink:#dbf2fc;--muted:#9fbad3;--faint:#6f8cab;--line:rgba(219,242,252,.1);
---fill:rgba(219,242,252,.06);--accent-ink:#fd6e88;--nav:#041a33;--good:#4fd1a5;--bad:#fd6e88;--shadow:none}}
+--fill:rgba(219,242,252,.06);--accent-ink:#fd6e88;--nav:#041a33;--good:#4fd1a5;--bad:#fd6e88;--shadow:none;
+--s1:#3987e5;--s2:#d95926;--s3:#199e70;--s4:#c98500;--s5:#d55181;--s6:#008300;--s7:#9085e9;--s8:#5d6f82}}
 *{box-sizing:border-box}
 body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.5 -apple-system,BlinkMacSystemFont,"SF Pro Text","Segoe UI",Roboto,sans-serif;-webkit-text-size-adjust:100%;-webkit-font-smoothing:antialiased}
 a{color:inherit}
@@ -319,6 +322,13 @@ main{min-width:0;padding:28px clamp(16px,4vw,40px) 64px;max-width:1180px}
 .plot{position:relative;height:200px;display:flex;align-items:flex-end;gap:3px;background:linear-gradient(var(--line) 1px,transparent 1px) 0 0/100% 50%;border-bottom:1px solid var(--line)}
 .plot i{flex:1;min-width:2px;background:var(--accent);border-radius:4px 4px 0 0;min-height:2px;transition:opacity .15s}
 .plot i:hover{opacity:.7}
+.plot .stack{flex:1;min-width:2px;display:flex;flex-direction:column-reverse;gap:2px;height:100%;justify-content:flex-start}
+.plot .stack b{display:block;min-height:0;border-radius:0}.plot .stack b:last-child{border-radius:4px 4px 0 0}
+.plot .stack:hover{opacity:.8}
+.legend{display:flex;flex-wrap:wrap;gap:6px 18px;margin-top:14px;font-size:13px}
+.legend span{display:inline-flex;align-items:center;gap:7px;color:var(--ink)}
+.legend i{width:10px;height:10px;border-radius:3px;flex:none}
+.legend small{color:var(--faint);font-variant-numeric:tabular-nums}
 .x{grid-column:2;display:flex;gap:3px;margin-top:6px;font-size:11px;color:var(--faint)}
 .x span{flex:1;min-width:0;text-align:center;white-space:nowrap;overflow:visible}
 .rows{width:100%;border-collapse:collapse}
@@ -540,6 +550,69 @@ ${error ? `<p class="notice error" role="alert" style="margin:0">${escapeHtml(er
     return `<nav class="seg" aria-label="Période">${Object.entries(VIEWS).map(([v, label]) => `<a href="${base}?vue=${v}"${v === view ? ' aria-current="page"' : ''}>${label}</a>`).join('')}</nav>`;
   }
 
+  // ---------- Where visits come from, for the stacked chart ----------
+  // Colors follow the entity, never its rank: main QR, installed app, search engines, then the
+  // QR codes per place in creation order. Past 7 entities, the rest goes into « Autres ».
+
+  function sourceEntities() {
+    const list = [
+      { key: 'qr', label: 'Code QR principal' },
+      { key: 'pwa', label: 'Appli installée' },
+      ...config.HUMAN_REFERRERS.map((w) => ({ key: `o:Recherche ${w[0].toUpperCase()}${w.slice(1)}`, label: `Recherche ${w[0].toUpperCase()}${w.slice(1)}` })),
+      ...Object.entries(data.campaigns).sort(([, a], [, b]) => a.createdAt.localeCompare(b.createdAt))
+        .map(([slug, c]) => ({ key: `qr:${slug}`, label: `QR · ${c.name}` })),
+    ];
+    return list.slice(0, 7).map((e, i) => ({ ...e, color: `var(--s${i + 1})` }));
+  }
+
+  // Visits of one day (or one hour of it) split by entity key; whatever is not explained is 'other'.
+  function segmentsOf(d, hour) {
+    const out = {};
+    if (!d) return out;
+    const at = (v) => (hour === undefined ? v : v?.[hour]) || 0;
+    const totalHere = hour === undefined ? d.views || 0 : d.hours?.[hour] || 0;
+    let placed = 0;
+    for (const [slug, c] of Object.entries(d.campaigns || {})) {
+      if (!Object.hasOwn(data.campaigns, slug)) continue; // deleted: counted with the main QR
+      const n = at(hour === undefined ? c.views : c.hours);
+      if (n) { out[`qr:${slug}`] = n; placed += n; }
+    }
+    const origins = hour === undefined ? d.origins || {} : d.hourOrigins || {};
+    for (const [origin, v] of Object.entries(origins)) {
+      let n = at(v);
+      const key = origin === 'Code QR' ? 'qr' : origin === 'Application (PWA)' ? 'pwa' : `o:${origin}`;
+      if (key === 'qr') n -= placed; // the places' scans are part of « Code QR »
+      if (n > 0) out[key] = (out[key] || 0) + n;
+    }
+    const known = Object.values(out).reduce((a, b) => a + b, 0);
+    if (totalHere > known) out.other = (out.other || 0) + totalHere - known; // e.g. hours before this was recorded
+    return out;
+  }
+
+  function stackedChartHtml(period) {
+    const entities = sourceEntities();
+    const keyOf = (k) => (entities.some((e) => e.key === k) ? k : 'other');
+    const buckets = period.buckets.map((b) => {
+      const seg = {};
+      for (const k of b.keys) {
+        for (const [key, n] of Object.entries(segmentsOf(data.days[k], b.hour))) seg[keyOf(key)] = (seg[keyOf(key)] || 0) + n;
+      }
+      return { ...b, seg, views: Object.values(seg).reduce((a, n) => a + n, 0) };
+    });
+    const totals = {};
+    for (const b of buckets) for (const [k, n] of Object.entries(b.seg)) totals[k] = (totals[k] || 0) + n;
+    const shown = [...entities.filter((e) => totals[e.key]), ...(totals.other ? [{ key: 'other', label: 'Autres / non détaillé', color: 'var(--s8)' }] : [])];
+    const max = Math.max(1, ...buckets.map((b) => b.views));
+    const nice = max <= 4 ? max : Math.ceil(max / 2) * 2;
+    const every = Math.max(1, Math.ceil(buckets.length / 8));
+    const tip = (b) => [`${b.title} : ${fmt(b.views)} visites`, ...shown.filter((e) => b.seg[e.key]).map((e) => `• ${e.label} : ${fmt(b.seg[e.key])}`)].join('\n');
+    return `<div class="chart" role="img" aria-label="Visites par période et par provenance">
+<div class="y"><span>${fmt(nice)}</span><span>${fmt(nice / 2)}</span><span>0</span></div>
+<div class="plot">${buckets.map((b) => `<div class="stack" title="${escapeHtml(tip(b))}" style="height:${Math.round((b.views / nice) * 100)}%">${shown.filter((e) => b.seg[e.key]).map((e) => `<b style="flex:${b.seg[e.key]};background:${e.color}"></b>`).join('')}</div>`).join('')}</div>
+<div class="x">${buckets.map((b, i) => `<span>${(buckets.length - 1 - i) % every === 0 ? escapeHtml(b.label) : ''}</span>`).join('')}</div></div>
+${shown.length ? `<div class="legend">${shown.map((e) => `<span><i style="background:${e.color}"></i>${escapeHtml(e.label)} <small>${fmt(totals[e.key])}</small></span>`).join('')}</div>` : ''}`;
+  }
+
   // Bar chart with a 0 / half / max scale and a few dates under it.
   function chartHtml(series, unitLabel) {
     const max = Math.max(1, ...series.map((b) => b.views));
@@ -714,7 +787,7 @@ ${todayCard}
 <div class="kpi"><span>Visiteurs uniques</span><b>${view === 'heure' ? '—' : fmt(total(series, 'uniques'))}</b><small>${view === 'heure' ? 'non compté par heure' : 'additionnés par jour'}</small></div>
 <div class="kpi"><span>Aujourd’hui</span><b>${fmt(todayD.views)}</b><small>${fmt(todayD.uniques)} visiteurs uniques</small></div>
 <div class="kpi"><span>Applis installées</span><b>${fmt(installs.length)}</b><small>${fmt(opened)} ouvertes (${escapeHtml(n)})</small></div></div>
-<div class="card"><h2>Visites par ${escapeHtml(period.unit)} <small>${escapeHtml(period.name)}</small></h2>${chartHtml(series, 'visites')}
+<div class="card"><h2>Visites par ${escapeHtml(period.unit)} et provenance <small>${escapeHtml(period.name)}</small></h2>${stackedChartHtml(period)}
 <p class="faint" style="margin:12px 0 0">Écartés (${escapeHtml(n)}) : ${fmt(sum(days, (d) => d.others))} visites non vérifiées · ${fmt(sum(days, (d) => d.bots))} robots</p></div>
 <div class="grid">
 ${card('Provenance', table(merge('origins'), dayViews))}
