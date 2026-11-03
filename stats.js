@@ -562,13 +562,15 @@ ${error ? `<p class="notice error" role="alert" style="margin:0">${escapeHtml(er
   // ---------- QR codes per place ----------
   // Each one points to QR_URL with ?qr=<slug>; its scans are counted apart (views and uniques per day/hour).
 
-  function slugify(name) {
-    const base = name.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase()
-      .replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 30) || 'qr';
-    let slug = base;
-    for (let i = 2; Object.hasOwn(data.campaigns, slug) || slug === 'new'; i++) slug = `${base}-${i}`;
-    return slug;
+  // New QR codes get a random 4-digit code (?qr=4821), which never changes, even when renamed.
+  // Older ones keep the code made from their first name.
+  function newCode() {
+    for (;;) {
+      const code = String(crypto.randomInt(1000, 10000));
+      if (!Object.hasOwn(data.campaigns, code)) return code;
+    }
   }
+
 
   function campaignUrl(slug) {
     if (!slug) return config.QR_URL;
@@ -631,7 +633,11 @@ ${list ? `<div class="list">${list}</div>` : '<p class="empty">Aucun code pour l
 <div class="grid-2">
 <div class="card"><h2>Télécharger</h2><div class="qrbox"><img src="/admin/qr.png?size=400&amp;c=${encodeURIComponent(slug)}" alt="Code QR ${escapeHtml(c.name)}">
 <div style="flex:1;min-width:240px">${downloadLinks(slug)}</div></div></div>
-<div class="card"><h2>Supprimer</h2><p class="faint" style="margin:0 0 12px">Le code imprimé mènera toujours au site, mais ses scans ne seront plus comptés à part.</p>
+<div class="card"><h2>Renommer <small>code ${escapeHtml(slug)}</small></h2>
+<form class="actions" method="post" action="/admin/qr/${encodeURIComponent(slug)}/rename" style="flex-wrap:nowrap">
+<input name="name" required maxlength="60" value="${escapeHtml(c.name)}" aria-label="Nouveau nom"><button type="submit">Renommer</button></form>
+<p class="faint" style="margin:8px 0 0">Change seulement le nom affiché ici. L’adresse (<b>?qr=${escapeHtml(slug)}</b>) et les codes déjà imprimés ne changent pas.</p>
+<h2 style="margin-top:20px">Supprimer</h2><p class="faint" style="margin:0 0 12px">Le code imprimé mènera toujours au site, mais ses scans ne seront plus comptés à part.</p>
 <form method="post" action="/admin/qr/${encodeURIComponent(slug)}/delete"><button class="danger" type="submit">Supprimer ce code QR</button></form></div></div>`);
   }
 
@@ -826,14 +832,20 @@ ${groups.map((g) => `<div class="card settings" id="${anchor(g)}"><h2>${escapeHt
     if (pathname === '/admin/qr/new' && req.method === 'POST') {
       const name = (new URLSearchParams(await readBody(req)).get('name') || '').trim().slice(0, 60);
       if (!name) return reply(res, 303, '', 'text/plain', { ...ADMIN_HEADERS, Location: '/admin/qr' });
-      const slug = slugify(name);
+      const slug = newCode();
       data.campaigns[slug] = { name, createdAt: new Date().toISOString() };
       scheduleSave();
       return reply(res, 303, '', 'text/plain', { ...ADMIN_HEADERS, Location: `/admin/qr/${encodeURIComponent(slug)}` });
     }
-    const qrMatch = /^\/admin\/qr\/([a-z0-9-]+)(\/delete)?$/.exec(pathname);
+    const qrMatch = /^\/admin\/qr\/([a-z0-9-]+)(\/delete|\/rename)?$/.exec(pathname);
     if (qrMatch && Object.hasOwn(data.campaigns, qrMatch[1])) {
-      if (qrMatch[2] && req.method === 'POST') {
+      if (qrMatch[2] === '/rename' && req.method === 'POST') {
+        // Only the name shown in /admin changes: the code in the URL (and the printed QR) stays.
+        const name = (new URLSearchParams(await readBody(req)).get('name') || '').trim().slice(0, 60);
+        if (name) { data.campaigns[qrMatch[1]].name = name; scheduleSave(); }
+        return reply(res, 303, '', 'text/plain', { ...ADMIN_HEADERS, Location: `/admin/qr/${encodeURIComponent(qrMatch[1])}` });
+      }
+      if (qrMatch[2] === '/delete' && req.method === 'POST') {
         delete data.campaigns[qrMatch[1]];
         scheduleSave();
         return reply(res, 303, '', 'text/plain', { ...ADMIN_HEADERS, Location: '/admin/qr' });
