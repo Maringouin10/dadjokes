@@ -559,7 +559,7 @@ ${error ? `<p class="notice error" role="alert" style="margin:0">${escapeHtml(er
       { key: 'qr', label: 'Code QR principal' },
       { key: 'pwa', label: 'Appli installée' },
       ...config.HUMAN_REFERRERS.map((w) => ({ key: `o:Recherche ${w[0].toUpperCase()}${w.slice(1)}`, label: `Recherche ${w[0].toUpperCase()}${w.slice(1)}` })),
-      ...Object.entries(data.campaigns).sort(([, a], [, b]) => a.createdAt.localeCompare(b.createdAt))
+      ...Object.entries(data.campaigns).filter(([, c]) => !c.parent).sort(([, a], [, b]) => a.createdAt.localeCompare(b.createdAt))
         .map(([slug, c]) => ({ key: `qr:${slug}`, label: `QR · ${c.name}` })),
     ];
     return list.slice(0, 7).map((e, i) => ({ ...e, color: `var(--s${i + 1})` }));
@@ -575,7 +575,8 @@ ${error ? `<p class="notice error" role="alert" style="margin:0">${escapeHtml(er
     for (const [slug, c] of Object.entries(d.campaigns || {})) {
       if (!Object.hasOwn(data.campaigns, slug)) continue; // deleted: counted with the main QR
       const n = at(hour === undefined ? c.views : c.hours);
-      if (n) { out[`qr:${slug}`] = n; placed += n; }
+      // A batch (lot) counts for its place in the general stats.
+      if (n) { const key = `qr:${placeOf(slug)}`; out[key] = (out[key] || 0) + n; placed += n; }
     }
     const origins = hour === undefined ? d.origins || {} : d.hourOrigins || {};
     for (const [origin, v] of Object.entries(origins)) {
@@ -668,20 +669,45 @@ ${shown.length ? `<div class="legend">${shown.map((e) => `<span><i style="backgr
 
   const campaignPick = (slug) => (d) => d?.campaigns?.[slug];
 
+  // Batches (lots): extra codes of a place, each with its own stats, summed into the place's.
+  const placeOf = (slug) => (Object.hasOwn(data.campaigns, data.campaigns[slug]?.parent || '') ? data.campaigns[slug].parent : slug);
+  const lotsOf = (slug) => Object.entries(data.campaigns).filter(([, c]) => c.parent === slug)
+    .sort(([, a], [, b]) => a.createdAt.localeCompare(b.createdAt)).map(([code]) => code);
+  const codesOf = (slug) => [slug, ...lotsOf(slug)];
+  const scansOf = (pick) => Object.values(data.days).reduce((n, d) => n + (pick(d)?.views || 0), 0);
+  // Counters of several codes added up (a place with its lots, or only the lots with a label count).
+  function groupPick(slugOrCodes) {
+    const codes = Array.isArray(slugOrCodes) ? slugOrCodes : codesOf(slugOrCodes);
+    return (d) => {
+      const out = { views: 0, uniques: 0, hours: Array(24).fill(0) };
+      for (const code of codes) {
+        const c = d?.campaigns?.[code];
+        if (!c) continue;
+        out.views += c.views || 0;
+        out.uniques += c.uniques || 0;
+        (c.hours || []).forEach((n, h) => { out.hours[h] += n; });
+      }
+      return out;
+    };
+  }
+  const copiesOf = (slug) => codesOf(slug).reduce((n, code) => n + (data.campaigns[code].copies || 0), 0);
+  // Codes whose number of labels is known: scans per label only uses those.
+  const countedCodes = (slug) => codesOf(slug).filter((code) => data.campaigns[code].copies);
+
   function qrPage() {
     const days = lastDays(30);
-    const rows = Object.entries(data.campaigns).map(([slug, c]) => {
-      const pick = campaignPick(slug);
+    const rows = Object.entries(data.campaigns).filter(([, c]) => !c.parent).map(([slug, c]) => {
+      const pick = groupPick(slug);
       const values = days.map((k) => pick(data.days[k])?.views || 0);
-      const all = Object.values(data.days).reduce((n, d) => n + (pick(d)?.views || 0), 0);
-      return { slug, ...c, values, month: values.reduce((a, b) => a + b, 0), all };
+      return { slug, ...c, values, month: values.reduce((a, b) => a + b, 0), all: scansOf(pick), copies: copiesOf(slug), lots: lotsOf(slug).length,
+        perLabel: perLabel(scansOf(groupPick(countedCodes(slug))), copiesOf(slug)) };
     }).sort((a, b) => b.month - a.month);
     const list = rows.map((c) => `<div class="item"><div class="grow"><a class="title" href="/admin/qr/${encodeURIComponent(c.slug)}">${escapeHtml(c.name)}</a>
-<div class="sub">${escapeHtml(campaignUrl(c.slug))}${c.note ? ` · ${escapeHtml(c.note.split('\n')[0].slice(0, 80))}` : ''}</div></div>${sparkline(c.values)}
+<div class="sub">${c.lots ? `${c.lots + 1} lots` : escapeHtml(campaignUrl(c.slug))}${c.note ? ` · ${escapeHtml(c.note.split('\n')[0].slice(0, 80))}` : ''}</div></div>${sparkline(c.values)}
 <div class="n"><b>${fmt(c.month)}</b><div class="faint">30 j · ${fmt(c.all)} au total</div>
-${c.copies ? `<div class="faint">${fmt(c.copies)} étiq. · ${perLabel(c.all, c.copies)} scans/étiq.</div>` : ''}</div></div>`).join('');
+${c.copies ? `<div class="faint">${fmt(c.copies)} étiq. · ${c.perLabel} scans/étiq.</div>` : ''}</div></div>`).join('');
     return page('Codes QR', 'qr', `${head('Codes QR', 'Un code par lieu (école, local…) pour compter ses scans à part.')}
-<div class="card"><h2>Codes QR par lieu <small>${rows.length} code${rows.length > 1 ? 's' : ''}</small></h2>
+<div class="card"><h2>Codes QR par lieu <small>${rows.length} lieu${rows.length > 1 ? 'x' : ''}</small></h2>
 <form class="actions" method="post" action="/admin/qr/new" style="margin-bottom:14px;flex-wrap:nowrap">
 <input name="name" required maxlength="60" placeholder="Nom du lieu (ex. École Sainte-Marie)"><button type="submit">Créer</button></form>
 ${list ? `<div class="list">${list}</div>` : '<p class="empty">Aucun code pour l’instant. Crée-en un pour chaque école où tu poses des étiquettes.</p>'}</div>
@@ -689,38 +715,76 @@ ${list ? `<div class="list">${list}</div>` : '<p class="empty">Aucun code pour l
 <div style="flex:1;min-width:240px"><p class="faint" style="margin:0 0 12px">Pour les étiquettes sans lieu précis. Ses scans comptent dans « Code QR » sans lieu.</p>${downloadLinks(null)}</div></div></div>`);
   }
 
-  const perLabel = (scans, copies) => (copies ? (scans / copies).toLocaleString('fr-FR', { maximumFractionDigits: 1 }) : null);
+  const perLabel = (scans, copies) => {
+    if (!copies) return null;
+    const r = scans / copies;
+    return r.toLocaleString('fr-FR', { maximumFractionDigits: r && r < 1 ? 2 : 1 });
+  };
 
   function campaignPage(slug, view = 'jour') {
     const c = data.campaigns[slug];
+    const isLot = Boolean(c.parent && Object.hasOwn(data.campaigns, c.parent));
+    const place = isLot ? data.campaigns[c.parent] : c;
+    const lots = isLot ? [] : lotsOf(slug);
+    // A place shows all its lots together; a lot shows only its own code.
+    const pick = isLot || !lots.length ? campaignPick(slug) : groupPick(slug);
+    const copies = isLot ? c.copies || 0 : copiesOf(slug);
     const period = periodOf(view);
-    const pick = campaignPick(slug);
     const series = seriesOf(period, pick);
     const todayC = pick(data.days[dayKey()]) || { views: 0, uniques: 0 };
-    const all = Object.values(data.days).reduce((n, d) => n + (pick(d)?.views || 0), 0);
+    const all = scansOf(pick);
     const views = total(series);
-    return page(c.name, 'qr', `${head(escapeHtml(c.name), `Créé le ${escapeHtml(c.createdAt.slice(0, 10))} · <a href="${escapeHtml(campaignUrl(slug))}" target="_blank" rel="noopener">${escapeHtml(campaignUrl(slug))}</a>`,
-      viewSelector(view, `/admin/qr/${encodeURIComponent(slug)}`), '<a class="crumb" href="/admin/qr">← Codes QR</a>')}
+    const url = campaignUrl(slug);
+    // Scans per label: only the codes whose number of labels is known.
+    const labelled = isLot || !lots.length ? null : groupPick(countedCodes(slug));
+    const allLabelled = labelled ? scansOf(labelled) : all;
+    const periodLabelled = labelled ? total(seriesOf(period, labelled)) : views;
+    const partial = labelled && countedCodes(slug).length < lots.length + 1;
+    const title = isLot ? `${escapeHtml(place.name)} · ${escapeHtml(c.name)}` : escapeHtml(c.name);
+    const crumb = isLot ? `<a class="crumb" href="/admin/qr/${encodeURIComponent(c.parent)}">← ${escapeHtml(place.name)}</a>` : '<a class="crumb" href="/admin/qr">← Codes QR</a>';
+    const sub = isLot || !lots.length
+      ? `${isLot ? 'Lot créé' : 'Créé'} le ${escapeHtml(c.createdAt.slice(0, 10))} · <a href="${escapeHtml(url)}" target="_blank" rel="noopener">${escapeHtml(url)}</a>`
+      : `${lots.length + 1} lots · stats de tous les lots additionnés`;
+
+    const lotRow = (code, label) => {
+      const lp = campaignPick(code);
+      const l = data.campaigns[code];
+      const lAll = scansOf(lp);
+      const l30 = lastDays(30).reduce((n, k) => n + (lp(data.days[k])?.views || 0), 0);
+      return `<tr><td><a href="/admin/qr/${encodeURIComponent(code)}" style="font-weight:600">${escapeHtml(label)}</a>
+<div class="faint">code ${escapeHtml(code)} · ${escapeHtml(l.createdAt.slice(0, 10))}${l.copies ? ` · ${fmt(l.copies)} étiquettes` : ''}${l.note ? ` · ${escapeHtml(l.note.split('\n')[0].slice(0, 60))}` : ''}</div></td>
+<td class="n"><b>${fmt(lAll)}</b> scans<small>${fmt(l30)} sur 30 j</small><div class="faint">${l.copies ? `${perLabel(lAll, l.copies)} scans/étiq.` : '—'}</div></td></tr>`;
+    };
+    const lotsCard = isLot ? '' : `<div class="card"><h2>Lots <small>un code par envoi d’étiquettes</small></h2>
+<table class="rows">${lotRow(slug, 'Lot d’origine')}${lots.map((code) => lotRow(code, data.campaigns[code].name)).join('')}</table>
+<form method="post" action="/admin/qr/${encodeURIComponent(slug)}/lot" class="actions" style="margin-top:14px">
+<input name="name" maxlength="60" placeholder="Nom du lot (ex. Lot ${lots.length + 2} · décembre)" style="flex:2;min-width:180px;width:auto">
+<input name="copies" type="number" min="0" max="1000000" placeholder="Nb d’étiquettes" style="flex:1;min-width:120px;width:auto">
+<button type="submit">Nouveau lot</button></form>
+<p class="faint" style="margin:8px 0 0">Chaque lot a son propre code QR et ses propres stats. Dans les stats générales, tous les lots comptent pour ${escapeHtml(c.name)}.</p></div>`;
+
+    return page(isLot ? `${place.name} · ${c.name}` : c.name, 'qr', `${head(title, sub, viewSelector(view, `/admin/qr/${encodeURIComponent(slug)}`), crumb)}
 <div class="kpis">
 <div class="kpi"><span>Scans · ${escapeHtml(period.name)}</span><b>${fmt(views)}</b>${delta(view, pick, views)}</div>
 <div class="kpi"><span>Visiteurs uniques</span><b>${view === 'heure' ? '—' : fmt(total(series, 'uniques'))}</b><small>${view === 'heure' ? 'non compté par heure' : 'additionnés par jour'}</small></div>
 <div class="kpi"><span>Aujourd’hui</span><b>${fmt(todayC.views)}</b><small>${fmt(todayC.uniques)} uniques</small></div>
 <div class="kpi"><span>Depuis la création</span><b>${fmt(all)}</b><small>scans</small></div>
-<div class="kpi"><span>Étiquettes produites</span><b>${c.copies ? fmt(c.copies) : '—'}</b><small>${c.copies ? 'exemplaires de ce code' : 'à indiquer dans « Infos »'}</small></div>
-<div class="kpi"><span>Scans par étiquette</span><b>${perLabel(all, c.copies) ?? '—'}</b><small>${c.copies ? `depuis la création · ${perLabel(views, c.copies)} (${escapeHtml(period.name)})` : 'indique le nombre d’exemplaires'}</small></div></div>
+<div class="kpi"><span>Étiquettes produites</span><b>${copies ? fmt(copies) : '—'}</b><small>${copies ? (isLot || !lots.length ? 'exemplaires de ce code' : 'tous les lots') : 'à indiquer dans « Infos »'}</small></div>
+<div class="kpi"><span>Scans par étiquette</span><b>${perLabel(allLabelled, copies) ?? '—'}</b><small>${copies ? `depuis la création · ${perLabel(periodLabelled, copies)} (${escapeHtml(period.name)})${partial ? ' · lots sans nombre d’étiquettes exclus' : ''}` : 'indique le nombre d’exemplaires'}</small></div></div>
 <div class="card"><h2>Scans par ${escapeHtml(period.unit)} <small>${escapeHtml(period.name)}</small></h2>${chartHtml(series, 'scans')}</div>
+${lotsCard}
 <div class="grid-2">
-<div class="card"><h2>Télécharger</h2><div class="qrbox"><img src="/admin/qr.png?size=400&amp;c=${encodeURIComponent(slug)}" alt="Code QR ${escapeHtml(c.name)}">
+<div class="card"><h2>Télécharger <small>${isLot ? `code ${escapeHtml(slug)}` : lots.length ? 'lot d’origine' : `code ${escapeHtml(slug)}`}</small></h2><div class="qrbox"><img src="/admin/qr.png?size=400&amp;c=${encodeURIComponent(slug)}" alt="Code QR ${escapeHtml(c.name)}">
 <div style="flex:1;min-width:240px">${downloadLinks(slug)}</div></div></div>
 <div class="card"><h2>Infos <small>code ${escapeHtml(slug)}</small></h2>
 <form method="post" action="/admin/qr/${encodeURIComponent(slug)}/rename" class="infos">
-<label>Nom<input name="name" required maxlength="60" value="${escapeHtml(c.name)}"></label>
-<label>Nombre d’exemplaires produits<input name="copies" type="number" min="0" max="1000000" step="1" value="${c.copies || ''}" placeholder="ex. 40"></label>
+<label>${isLot ? 'Nom du lot' : 'Nom du lieu'}<input name="name" required maxlength="60" value="${escapeHtml(c.name)}"></label>
+<label>${isLot || !lots.length ? 'Nombre d’exemplaires produits' : 'Exemplaires du lot d’origine'}<input name="copies" type="number" min="0" max="1000000" step="1" value="${c.copies || ''}" placeholder="ex. 100"></label>
 <label>Note<textarea name="note" rows="3" maxlength="2000" placeholder="ex. posées au 2e étage le 3 nov., casier 112">${escapeHtml(c.note || '')}</textarea></label>
 <button type="submit">Enregistrer</button></form>
 <p class="faint" style="margin:8px 0 0">Le nom change seulement dans l’admin : l’adresse (<b>?qr=${escapeHtml(slug)}</b>) et les codes déjà imprimés ne changent pas.</p>
-<h2 style="margin-top:20px">Supprimer</h2><p class="faint" style="margin:0 0 12px">Le code imprimé mènera toujours au site, mais ses scans ne seront plus comptés à part.</p>
-<form method="post" action="/admin/qr/${encodeURIComponent(slug)}/delete"><button class="danger" type="submit">Supprimer ce code QR</button></form></div></div>`);
+<h2 style="margin-top:20px">Supprimer</h2><p class="faint" style="margin:0 0 12px">${isLot ? 'Ce lot' : lots.length ? `Ce lieu et ses ${lots.length} autre${lots.length > 1 ? 's' : ''} lot${lots.length > 1 ? 's' : ''}` : 'Le code imprimé'} : les codes imprimés mèneront toujours au site, mais leurs scans ne seront plus comptés à part.</p>
+<form method="post" action="/admin/qr/${encodeURIComponent(slug)}/delete"><button class="danger" type="submit">Supprimer ${isLot ? 'ce lot' : 'ce code QR'}</button></form></div></div>`);
   }
 
   // ---------- Jokes ----------
@@ -919,7 +983,7 @@ ${groups.map((g) => `<div class="card settings" id="${anchor(g)}"><h2>${escapeHt
       scheduleSave();
       return reply(res, 303, '', 'text/plain', { ...ADMIN_HEADERS, Location: `/admin/qr/${encodeURIComponent(slug)}` });
     }
-    const qrMatch = /^\/admin\/qr\/([a-z0-9-]+)(\/delete|\/rename)?$/.exec(pathname);
+    const qrMatch = /^\/admin\/qr\/([a-z0-9-]+)(\/delete|\/rename|\/lot)?$/.exec(pathname);
     if (qrMatch && Object.hasOwn(data.campaigns, qrMatch[1])) {
       if (qrMatch[2] === '/rename' && req.method === 'POST') {
         // Only the name shown in /admin changes: the code in the URL (and the printed QR) stays.
@@ -932,10 +996,24 @@ ${groups.map((g) => `<div class="card settings" id="${anchor(g)}"><h2>${escapeHt
         scheduleSave();
         return reply(res, 303, '', 'text/plain', { ...ADMIN_HEADERS, Location: `/admin/qr/${encodeURIComponent(qrMatch[1])}` });
       }
-      if (qrMatch[2] === '/delete' && req.method === 'POST') {
-        delete data.campaigns[qrMatch[1]];
+      if (qrMatch[2] === '/lot' && req.method === 'POST' && !data.campaigns[qrMatch[1]].parent) {
+        const form = new URLSearchParams(await readBody(req));
+        const code = newCode();
+        data.campaigns[code] = {
+          name: (form.get('name') || '').trim().slice(0, 60) || `Lot ${lotsOf(qrMatch[1]).length + 2}`,
+          parent: qrMatch[1],
+          createdAt: new Date().toISOString(),
+          copies: Math.min(1e6, Math.max(0, Math.floor(Number(form.get('copies'))) || 0)),
+        };
         scheduleSave();
-        return reply(res, 303, '', 'text/plain', { ...ADMIN_HEADERS, Location: '/admin/qr' });
+        return reply(res, 303, '', 'text/plain', { ...ADMIN_HEADERS, Location: `/admin/qr/${code}` });
+      }
+      if (qrMatch[2] === '/delete' && req.method === 'POST') {
+        const parent = data.campaigns[qrMatch[1]].parent;
+        for (const code of codesOf(qrMatch[1])) delete data.campaigns[code]; // a place goes with its lots
+        scheduleSave();
+        const back = parent && Object.hasOwn(data.campaigns, parent) ? `/admin/qr/${encodeURIComponent(parent)}` : '/admin/qr';
+        return reply(res, 303, '', 'text/plain', { ...ADMIN_HEADERS, Location: back });
       }
       if (!qrMatch[2]) return html(res, 200, campaignPage(qrMatch[1], viewParam(searchParams)));
     }

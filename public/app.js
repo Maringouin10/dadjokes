@@ -571,7 +571,8 @@
     return turnstileLoading;
   }
 
-  function captcha(container) {
+  // `onToken` (optional) is called each time the widget gives a token.
+  function captcha(container, onToken) {
     const state = { needed: Boolean(config && config.turnstileSiteKey), token: null, id: null };
     container.replaceChildren();
     if (!state.needed) return { ...state, reset() {}, remove() {} };
@@ -580,7 +581,7 @@
         sitekey: config.turnstileSiteKey,
         language: 'fr',
         theme: 'auto',
-        callback: (token) => { state.token = token; },
+        callback: (token) => { state.token = token; if (onToken) onToken(token); },
         'expired-callback': () => { state.token = null; },
         'error-callback': () => { state.token = null; },
       });
@@ -687,26 +688,46 @@
       rateScale.hidden = false;
       $('rate-thanks').hidden = true;
       rateScale.querySelectorAll('button').forEach((b) => { b.disabled = false; b.removeAttribute('aria-pressed'); });
+      $('rate-captcha').replaceChildren();
       rate.hidden = false;
     }, delay);
   }
 
+  // The anti-robot check appears only after a number is tapped, then the vote goes as soon as it passes.
+  let rateCaptcha = null;
   async function sendRating(score, button) {
     const id = current && current.id;
     if (!id) return;
-    rateScale.querySelectorAll('button').forEach((b) => { b.disabled = true; });
+    rateScale.querySelectorAll('button').forEach((b) => { b.disabled = true; b.removeAttribute('aria-pressed'); });
     button.setAttribute('aria-pressed', 'true');
-    storageSet('rated', id);
     const thanks = $('rate-thanks');
-    try {
-      const { average, count } = await postJson('/api/rate', { id, score, device: deviceId() });
-      thanks.textContent = `Merci ! Moyenne : ${average.toLocaleString('fr-FR', { maximumFractionDigits: 1 })}/10 (${count} vote${count > 1 ? 's' : ''})`;
-    } catch {
-      thanks.textContent = 'Merci !';
+    const show = (text) => { thanks.textContent = text; thanks.hidden = false; };
+    let token;
+    if (config && config.turnstileSiteKey) {
+      show('Petite vérification anti-robot…');
+      rateCaptcha?.remove();
+      token = await new Promise((resolve) => {
+        rateCaptcha = captcha($('rate-captcha'), resolve);
+        setTimeout(() => resolve(null), 90 * 1000);
+      });
+      if (!token) {
+        show('Vérification non terminée. Touche une note pour réessayer.');
+        rateScale.querySelectorAll('button').forEach((b) => { b.disabled = false; });
+        return;
+      }
     }
-    rateScale.hidden = true;
-    thanks.hidden = false;
-    setTimeout(() => { rate.hidden = true; }, 2500);
+    try {
+      const { average, count } = await postJson('/api/rate', { id, score, device: deviceId(), turnstile: token });
+      storageSet('rated', id);
+      rateCaptcha?.remove();
+      rateScale.hidden = true;
+      show(`Merci ! Moyenne : ${average.toLocaleString('fr-FR', { maximumFractionDigits: 1 })}/10 (${count} vote${count > 1 ? 's' : ''})`);
+      setTimeout(() => { rate.hidden = true; }, 2500);
+    } catch (err) {
+      rateCaptcha?.reset(); // a token works only once
+      show(`${err.message} Touche une note pour réessayer.`);
+      rateScale.querySelectorAll('button').forEach((b) => { b.disabled = false; });
+    }
   }
 
   $('rate-close').addEventListener('click', () => {

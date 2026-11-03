@@ -419,6 +419,9 @@ async function handleRate(req, res) {
   const score = Number(body.score);
   if (!Number.isInteger(score) || score < 1 || score > 10) return sendJson(res, 400, { error: 'Note invalide.' });
   if (typeof body.device !== 'string' || !/^[a-f0-9]{32}$/.test(body.device)) return sendJson(res, 400, { error: 'Appareil non reconnu.' });
+  if (!(await turnstile.verify(body.turnstile, clientIp(req)))) {
+    return sendJson(res, 403, { error: 'Vérification anti-robot échouée. Réessaie.' });
+  }
   const device = hashed(`rate|${body.device}`);
   joke.raters ||= [];
   joke.ratings ||= { sum: 0, count: 0, dist: Array(10).fill(0) };

@@ -78,7 +78,9 @@ unreachable, the joke is kept (word filter only) and a warning is logged.
 
 - In `/admin` → **Codes QR par lieu**, name a QR code (e.g. a school): it points to `QR_URL?qr=<name>` and
   its scans are counted apart (per day, uniques). Its page has the QR (PNG/SVG), label (PNG/PDF) and poster.
-- After the punchline, a dismissible pop-up asks how funny the joke is (1–10), once per device and joke.
+  A place can have **lots** (one per batch of labels sent): each lot has its own 4-digit code, label count,
+  note and stats; the place page adds its lots up, and the general stats count them all as that place.
+- After the punchline, a dismissible pop-up asks how funny the joke is (1–10), once per device and joke (Turnstile after the tap).
   Averages are shown in `/admin`.
 
 ### Anti-robot, reports and Québec privacy law (Loi 25)

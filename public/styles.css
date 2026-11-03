@@ -618,3 +618,6 @@ a.button { display: inline-flex; align-items: center; justify-content: center; t
 }
 @media (max-width: 380px) { .flip-coach { font-size: 0.8125rem; padding: 8px 12px; } }
 @media (prefers-reduced-motion: reduce) { .coach-hand { animation: none; } }
+
+.rate-captcha { min-height: 0; padding-right: 8px; }
+.rate-captcha:empty { display: none; }
