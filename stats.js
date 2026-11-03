@@ -374,6 +374,7 @@ textarea{resize:vertical}
 .field code{font-size:11.5px;color:var(--faint)}
 .tag{display:inline-block;font-weight:600;font-size:11px;padding:0 6px;border-radius:6px;background:var(--fill);color:var(--muted);margin-left:4px;vertical-align:1px}
 .tag-admin{background:color-mix(in srgb,var(--accent) 25%,transparent);color:var(--ink)}
+.infos{display:flex;flex-direction:column;gap:10px}.infos label{display:flex;flex-direction:column;gap:4px;font-size:13px;font-weight:600;color:var(--muted)}.infos button{align-self:flex-start}.infos input,.infos textarea{font-weight:400;font-size:14px;color:var(--ink)}
 .reset{display:flex;gap:6px;align-items:center;font-size:12.5px;color:var(--muted);margin-top:6px}.reset input{width:auto;min-height:0}
 .savebar{position:sticky;bottom:0;margin-top:16px;padding:12px 0 max(12px,env(safe-area-inset-bottom));background:linear-gradient(transparent,var(--bg) 35%);display:flex;justify-content:flex-end}
 .savebar button{min-width:180px;min-height:44px}
@@ -603,8 +604,9 @@ ${error ? `<p class="notice error" role="alert" style="margin:0">${escapeHtml(er
       return { slug, ...c, values, month: values.reduce((a, b) => a + b, 0), all };
     }).sort((a, b) => b.month - a.month);
     const list = rows.map((c) => `<div class="item"><div class="grow"><a class="title" href="/admin/qr/${encodeURIComponent(c.slug)}">${escapeHtml(c.name)}</a>
-<div class="sub">${escapeHtml(campaignUrl(c.slug))}</div></div>${sparkline(c.values)}
-<div class="n"><b>${fmt(c.month)}</b><div class="faint">30 j · ${fmt(c.all)} au total</div></div></div>`).join('');
+<div class="sub">${escapeHtml(campaignUrl(c.slug))}${c.note ? ` · ${escapeHtml(c.note.split('\n')[0].slice(0, 80))}` : ''}</div></div>${sparkline(c.values)}
+<div class="n"><b>${fmt(c.month)}</b><div class="faint">30 j · ${fmt(c.all)} au total</div>
+${c.copies ? `<div class="faint">${fmt(c.copies)} étiq. · ${perLabel(c.all, c.copies)} scans/étiq.</div>` : ''}</div></div>`).join('');
     return page('Codes QR', 'qr', `${head('Codes QR', 'Un code par lieu (école, local…) pour compter ses scans à part.')}
 <div class="card"><h2>Codes QR par lieu <small>${rows.length} code${rows.length > 1 ? 's' : ''}</small></h2>
 <form class="actions" method="post" action="/admin/qr/new" style="margin-bottom:14px;flex-wrap:nowrap">
@@ -613,6 +615,8 @@ ${list ? `<div class="list">${list}</div>` : '<p class="empty">Aucun code pour l
 <div class="card"><h2>Code QR principal <small>${escapeHtml(config.QR_URL)}</small></h2><div class="qrbox"><img src="/admin/qr.png?size=400" alt="Code QR principal">
 <div style="flex:1;min-width:240px"><p class="faint" style="margin:0 0 12px">Pour les étiquettes sans lieu précis. Ses scans comptent dans « Code QR » sans lieu.</p>${downloadLinks(null)}</div></div></div>`);
   }
+
+  const perLabel = (scans, copies) => (copies ? (scans / copies).toLocaleString('fr-FR', { maximumFractionDigits: 1 }) : null);
 
   function campaignPage(slug, view = 'jour') {
     const c = data.campaigns[slug];
@@ -628,15 +632,20 @@ ${list ? `<div class="list">${list}</div>` : '<p class="empty">Aucun code pour l
 <div class="kpi"><span>Scans · ${escapeHtml(period.name)}</span><b>${fmt(views)}</b>${delta(view, pick, views)}</div>
 <div class="kpi"><span>Visiteurs uniques</span><b>${view === 'heure' ? '—' : fmt(total(series, 'uniques'))}</b><small>${view === 'heure' ? 'non compté par heure' : 'additionnés par jour'}</small></div>
 <div class="kpi"><span>Aujourd’hui</span><b>${fmt(todayC.views)}</b><small>${fmt(todayC.uniques)} uniques</small></div>
-<div class="kpi"><span>Depuis la création</span><b>${fmt(all)}</b><small>scans</small></div></div>
+<div class="kpi"><span>Depuis la création</span><b>${fmt(all)}</b><small>scans</small></div>
+<div class="kpi"><span>Étiquettes produites</span><b>${c.copies ? fmt(c.copies) : '—'}</b><small>${c.copies ? 'exemplaires de ce code' : 'à indiquer dans « Infos »'}</small></div>
+<div class="kpi"><span>Scans par étiquette</span><b>${perLabel(all, c.copies) ?? '—'}</b><small>${c.copies ? `depuis la création · ${perLabel(views, c.copies)} (${escapeHtml(period.name)})` : 'indique le nombre d’exemplaires'}</small></div></div>
 <div class="card"><h2>Scans par ${escapeHtml(period.unit)} <small>${escapeHtml(period.name)}</small></h2>${chartHtml(series, 'scans')}</div>
 <div class="grid-2">
 <div class="card"><h2>Télécharger</h2><div class="qrbox"><img src="/admin/qr.png?size=400&amp;c=${encodeURIComponent(slug)}" alt="Code QR ${escapeHtml(c.name)}">
 <div style="flex:1;min-width:240px">${downloadLinks(slug)}</div></div></div>
-<div class="card"><h2>Renommer <small>code ${escapeHtml(slug)}</small></h2>
-<form class="actions" method="post" action="/admin/qr/${encodeURIComponent(slug)}/rename" style="flex-wrap:nowrap">
-<input name="name" required maxlength="60" value="${escapeHtml(c.name)}" aria-label="Nouveau nom"><button type="submit">Renommer</button></form>
-<p class="faint" style="margin:8px 0 0">Change seulement le nom affiché ici. L’adresse (<b>?qr=${escapeHtml(slug)}</b>) et les codes déjà imprimés ne changent pas.</p>
+<div class="card"><h2>Infos <small>code ${escapeHtml(slug)}</small></h2>
+<form method="post" action="/admin/qr/${encodeURIComponent(slug)}/rename" class="infos">
+<label>Nom<input name="name" required maxlength="60" value="${escapeHtml(c.name)}"></label>
+<label>Nombre d’exemplaires produits<input name="copies" type="number" min="0" max="1000000" step="1" value="${c.copies || ''}" placeholder="ex. 40"></label>
+<label>Note<textarea name="note" rows="3" maxlength="2000" placeholder="ex. posées au 2e étage le 3 nov., casier 112">${escapeHtml(c.note || '')}</textarea></label>
+<button type="submit">Enregistrer</button></form>
+<p class="faint" style="margin:8px 0 0">Le nom change seulement dans l’admin : l’adresse (<b>?qr=${escapeHtml(slug)}</b>) et les codes déjà imprimés ne changent pas.</p>
 <h2 style="margin-top:20px">Supprimer</h2><p class="faint" style="margin:0 0 12px">Le code imprimé mènera toujours au site, mais ses scans ne seront plus comptés à part.</p>
 <form method="post" action="/admin/qr/${encodeURIComponent(slug)}/delete"><button class="danger" type="submit">Supprimer ce code QR</button></form></div></div>`);
   }
@@ -841,8 +850,13 @@ ${groups.map((g) => `<div class="card settings" id="${anchor(g)}"><h2>${escapeHt
     if (qrMatch && Object.hasOwn(data.campaigns, qrMatch[1])) {
       if (qrMatch[2] === '/rename' && req.method === 'POST') {
         // Only the name shown in /admin changes: the code in the URL (and the printed QR) stays.
-        const name = (new URLSearchParams(await readBody(req)).get('name') || '').trim().slice(0, 60);
-        if (name) { data.campaigns[qrMatch[1]].name = name; scheduleSave(); }
+        const form = new URLSearchParams(await readBody(req, 8192));
+        const c = data.campaigns[qrMatch[1]];
+        const name = (form.get('name') || '').trim().slice(0, 60);
+        if (name) c.name = name;
+        if (form.has('copies')) c.copies = Math.min(1e6, Math.max(0, Math.floor(Number(form.get('copies'))) || 0));
+        if (form.has('note')) c.note = (form.get('note') || '').replace(/\r\n?/g, '\n').trim().slice(0, 2000);
+        scheduleSave();
         return reply(res, 303, '', 'text/plain', { ...ADMIN_HEADERS, Location: `/admin/qr/${encodeURIComponent(qrMatch[1])}` });
       }
       if (qrMatch[2] === '/delete' && req.method === 'POST') {
