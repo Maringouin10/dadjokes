@@ -47,8 +47,8 @@ const jsonLd = (data) => `<script type="application/ld+json">${JSON.stringify(da
 function createSeo({ getStore, currentKey }) {
   const base = () => config.SITE_URL;
 
-  // Everything that has a page, newest first: the past daily jokes (/blague/<date>-<slug>) and the library
-  // (/blague/n<number>-<slug>). Past, French, not removed, not from the local fallback list.
+  // Everything that has a page, newest first: the past daily jokes only (/blague/<date>-<slug>), i.e. jokes that
+  // were already revealed. Past, French, not removed, not from the local fallback list.
   // Recomputed at most once a minute (ratings change, thousands of jokes are cheap but not free).
   let memo = null;
   function load() {
@@ -64,19 +64,15 @@ function createSeo({ getStore, currentKey }) {
     const daily = Object.entries(store.days)
       .filter(([day, j]) => DAY.test(day) && day < today && j.lang === 'fr' && !j.unavailable && !j.fallback && !banned.has(j.id))
       .map(([day, j]) => make({ kind: 'day', key: day, day, sortKey: `${day}|0` }, j));
-    const library = (store.library || [])
-      .filter((j) => j.lang === 'fr' && !banned.has(j.id))
-      .map((j) => make({ kind: 'lib', key: `n${j.n}`, day: null, n: j.n, sortKey: `${String(j.addedAt).slice(0, 10)}|${String(j.n).padStart(6, '0')}` }, j));
-    for (const e of [...daily, ...library]) e.path = `/blague/${e.key}${e.slug ? `-${e.slug}` : ''}`;
+    for (const e of daily) e.path = `/blague/${e.key}${e.slug ? `-${e.slug}` : ''}`;
     const byNew = (a, b2) => (a.sortKey < b2.sortKey ? 1 : -1);
     daily.sort(byNew);
-    library.sort(byNew);
-    const all = [...daily, ...library].sort(byNew);
+    const all = daily;
     const themes = new Map(THEMES.map((t) => [t.slug, all.filter((e) => e.themes.includes(t.slug))]));
     const rated = daily.filter((e) => e.joke.ratings && e.joke.ratings.count >= 3)
       .sort((a, b2) => b2.joke.ratings.sum / b2.joke.ratings.count - a.joke.ratings.sum / a.joke.ratings.count
         || b2.joke.ratings.count - a.joke.ratings.count);
-    memo = { at: Date.now(), today, daily, library, all, themes, rated, byKey: new Map(all.map((e) => [e.key, e])) };
+    memo = { at: Date.now(), today, daily, all, themes, rated, byKey: new Map(all.map((e) => [e.key, e])) };
     return memo;
   }
 
@@ -153,7 +149,7 @@ ${body}
   function jokePage(entry) {
     const { joke, setup, punchline } = entry;
     const data = load();
-    const kindList = entry.kind === 'day' ? data.daily : data.library; // newest first
+    const kindList = data.daily; // newest first
     const i = kindList.findIndex((e) => e.key === entry.key);
     const newer = kindList[i - 1];
     const older = kindList[i + 1];
@@ -320,7 +316,7 @@ ${body}
       }))),
       ...months().map(([m]) => ({ loc: `${base()}/blagues/${m}`, changefreq: 'monthly', priority: '0.6' })),
     ];
-    const jokes = data.all.slice(0, 50000 - urls.length).map((e) => ({ loc: urlOf(e), lastmod: e.day || String(e.joke.addedAt).slice(0, 10), priority: '0.5' }));
+    const jokes = data.all.slice(0, 50000 - urls.length).map((e) => ({ loc: urlOf(e), lastmod: e.day, priority: '0.5' }));
     return `<?xml version="1.0" encoding="UTF-8"?>
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
 ${[...urls, ...jokes].map((u) => `<url><loc>${escapeHtml(u.loc)}</loc>${u.lastmod ? `<lastmod>${u.lastmod}</lastmod>` : ''}${u.changefreq ? `<changefreq>${u.changefreq}</changefreq>` : ''}<priority>${u.priority}</priority></url>`).join('\n')}
@@ -341,11 +337,10 @@ Sitemap: ${base()}/sitemap.xml
   // ---------- Share images (1200 × 630, setup only) ----------
 
   const images = new Map();
-  // key: a day (YYYY-MM-DD, today's joke included) or n<number> for a library joke.
+  // key: a day (YYYY-MM-DD). Only the setup is drawn, so today's joke can have one too.
   function ogImage(key) {
     let joke;
     if (DAY.test(key)) joke = getStore().days[key];
-    else if (/^n\d+$/.test(key)) joke = (getStore().library || []).find((j) => `n${j.n}` === key);
     if (!joke || joke.lang !== 'fr' || joke.unavailable) return null;
     const cacheKey = `${key}|${joke.id}`;
     if (!images.has(cacheKey)) {

@@ -44,16 +44,14 @@ Without Docker: `node server.js` (Node 20+, no dependencies).
   previous/next links, share buttons). Today's link redirects to `/` until tomorrow. Removed (reported) jokes and
   the local fallback list get no page.
 - `/blagues` (latest jokes + months) and `/blagues/<YYYY-MM>` list the archive. `sitemap.xml` and `robots.txt` are generated.
-- **Library** (`library.js`): every 30 min, a few more human-written jokes are taken from the same APIs, checked by the
-  word filter **and** Groq, and published as pages `/blague/n<number>-<slug>`. They are never used as the joke of
-  the day, and nothing is imported without `GROQ_API_KEY` (a joke Groq could not judge is skipped). Settings:
-  `LIBRARY_PER_RUN` (0 = off), `LIBRARY_MAX`. No joke is ever written by an AI.
+- **Only revealed jokes are published.** A joke gets a page only once it has been the joke of the day and its
+  period is over: there is no extra library, and no joke is ever written by an AI.
 - **Themes** (`themes.js`, plain keyword rules): `/blagues/theme/<slug>` (animals, school, food, jobs, computing…,
   « courtes », « Toc toc »). A theme page exists, and is in the sitemap, only once it has 5 jokes.
   `/blagues/meilleures` ranks the jokes of the day by visitor rating (needs 5 rated jokes). `/blagues` is paginated
   (`/blagues/page/<n>`, 50 per page).
 - To take a published joke down, add its id to `banned` in `/data/jokes.json` (a « Signaler cette blague » e-mail link is on every page).
-- `/og/<date>.png` (or `/og/n<number>.png`) is the 1200 × 630 share image (the setup only, never the answer).
+- `/og/<date>.png` is the 1200 × 630 share image (the setup only, never the answer).
 - Past-joke pages are cacheable by a CDN for a day (`s-maxage`): put Cloudflare in front and add a cache rule for
   `/blague/*`, `/blagues*` and `/og/*`. Submit `https://<your domain>/sitemap.xml` in Google Search Console and Bing Webmaster.
 - The share button shares the joke's permanent link with `?src=partage`. Any link can carry `?src=<name>`

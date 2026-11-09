@@ -15,7 +15,6 @@ const config = require('./config');
 const turnstile = require('./turnstile');
 const moderation = require('./moderation');
 const { createSeo } = require('./seo');
-const { createLibrary } = require('./library');
 const crypto = require('node:crypto');
 
 const PORT = Number(process.env.PORT) || 8002;
@@ -115,7 +114,7 @@ async function saveStore() {
 
 // Every joke already shown, plus the ones removed after reports: never picked again.
 function seenIds() {
-  return new Set([...Object.values(store.days).map((j) => j.id), ...(store.banned || []), ...(store.library || []).map((j) => j.id)]);
+  return new Set([...Object.values(store.days).map((j) => j.id), ...(store.banned || [])]);
 }
 
 // ---------- Joke sources ----------
@@ -559,11 +558,11 @@ function handleSeo(req, res, pathname, searchParams) {
     send(res, 200, seo.sitemap(), { 'Content-Type': 'application/xml; charset=utf-8', 'Cache-Control': 'public, max-age=3600' });
     return true;
   }
-  let m = pathname.match(/^\/og\/(\d{4}-\d{2}-\d{2}|n\d+)\.png$/);
+  let m = pathname.match(/^\/og\/(\d{4}-\d{2}-\d{2})\.png$/);
   if (m) {
     const png = seo.ogImage(m[1]);
     if (!png) { send(res, 404, 'Not found', { 'Content-Type': MIME['.txt'] }); return true; }
-    const past = m[1].startsWith('n') || m[1] < jokePeriod().key;
+    const past = m[1] < jokePeriod().key;
     send(res, 200, req.method === 'HEAD' ? undefined : png, {
       'Content-Type': MIME['.png'],
       'Cache-Control': past ? 'public, max-age=86400' : 'public, max-age=300',
@@ -586,7 +585,7 @@ function handleSeo(req, res, pathname, searchParams) {
     return true;
   }
   if ((m = pathname.match(/^\/blagues\/(\d{4}-\d{2})$/))) { page(seo.monthPage(m[1])); return true; }
-  m = pathname.match(/^\/blague\/(\d{4}-\d{2}-\d{2}|n\d+)(?:-(.*))?$/);
+  m = pathname.match(/^\/blague\/(\d{4}-\d{2}-\d{2})(?:-(.*))?$/);
   if (m) {
     const [, key, slug = ''] = m;
     const query = searchParams.toString() ? `?${searchParams}` : '';
@@ -688,13 +687,6 @@ const server = http.createServer(async (req, res) => {
 config.load(DATA_DIR);
 loadStore();
 const seo = createSeo({ getStore: () => store, currentKey: () => jokePeriod().key });
-const library = createLibrary({
-  getStore: () => store,
-  save: () => saveStore().catch((err) => console.error('[store] save failed:', err.message)),
-  sources: SOURCES,
-  acceptable,
-  seenIds,
-});
 const notifier = createNotifier({
   dataDir: DATA_DIR,
   getCurrentJoke: () => getTodayJoke().then(({ dayKey, joke }) => ({ key: dayKey, joke })),
@@ -710,7 +702,6 @@ config.onChange((keys) => {
 // First start: nothing to catch up on. After downtime across a change: send the missed one.
 if (!store.notified) store.notified = jokePeriod().key;
 scheduleRefresh();
-library.start();
 notifyNewJoke().catch((err) => console.error(err));
 server.listen(PORT, () => console.log(`Dad Jokes listening on :${PORT}`));
 notifier.diagnose().then((lines) => console.log(['[config] Notifications :', ...lines].join('\n')));
