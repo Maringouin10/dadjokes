@@ -15,7 +15,10 @@ The source of the joke is shown in small print at the bottom of the screen.
 - Each day's joke is stored in `/data/jokes.json`, so it survives restarts and never repeats.
 - Sober, Apple-style design (system font, light/dark mode, 44 pt touch targets, safe areas,
   reduced motion), responsive, and installable as a PWA (manifest, service worker).
-- Nothing is cached (no-store headers, no service worker cache): you always get the latest version.
+- **Jokes are never written by an AI.** They come only from the APIs above and the local list; Groq is used
+  only to *refuse* a joke (moderation), never to create one.
+- No service worker cache. The home page and the API are `no-store`; assets use a `?v=<fingerprint>` URL
+  (new on every deploy) and are cached for good, so you still always get the latest version.
 
 ## Run
 
@@ -32,6 +35,21 @@ BLAGUES_API_TOKEN=your_token docker compose up -d --build
 ```
 
 Without Docker: `node server.js` (Node 20+, no dependencies).
+
+## Search engines and sharing (SEO)
+
+- The home page has today's joke **in its HTML** (not only loaded by JavaScript), plus canonical, Open Graph,
+  Twitter Card and JSON-LD tags.
+- Every past joke has a permanent page `/blague/<YYYY-MM-DD>-<slug>` (setup visible, answer behind « Voir la réponse »,
+  previous/next links, share buttons). Today's link redirects to `/` until tomorrow. Removed (reported) jokes and
+  the local fallback list get no page.
+- `/blagues` (latest jokes + months) and `/blagues/<YYYY-MM>` list the archive. `sitemap.xml` and `robots.txt` are generated.
+- `/og/<date>.png` is the 1200 × 630 share image (the setup only, never the answer).
+- Past-joke pages are cacheable by a CDN for a day (`s-maxage`): put Cloudflare in front and add a cache rule for
+  `/blague/*`, `/blagues*` and `/og/*`. Submit `https://<your domain>/sitemap.xml` in Google Search Console and Bing Webmaster.
+- The share button shares the joke's permanent link with `?src=partage`. Any link can carry `?src=<name>`
+  (e.g. `?src=tiktok`): such visits count as human in `/admin` under « Liens partagés ». Visits from the social
+  networks in `SOCIAL_REFERRERS` count under « Réseaux sociaux ».
 
 ## Notifications
 
@@ -122,7 +140,8 @@ not exist). It shows:
 
 - **Human visits** per day, with countries, cities, sites, devices. A visit counts as human when
   it comes from the QR code (`?qr`), from the installed app (PWA), or from a search engine listed
-  in `HUMAN_REFERRERS` (Google by default). Other visits are counted apart as "non vérifiées",
+  in `HUMAN_REFERRERS` (Google, Bing, DuckDuckGo… by default), from a social network in `SOCIAL_REFERRERS`, or from a link
+  tagged `?src=<name>`. Other visits are counted apart as "non vérifiées",
   and known bots as "robots écartés". IPs are never stored.
 - **Label requests** made on `/ads`, with a "Livré" button once delivered.
 - **Downloads**: the QR code (PNG 2048 px, SVG), thermal labels 1 × 3 in (PDF, one label per

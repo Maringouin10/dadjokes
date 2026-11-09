@@ -14,6 +14,7 @@ const { createAds } = require('./ads');
 const config = require('./config');
 const turnstile = require('./turnstile');
 const moderation = require('./moderation');
+const { createSeo } = require('./seo');
 const crypto = require('node:crypto');
 
 const PORT = Number(process.env.PORT) || 8002;
@@ -282,6 +283,7 @@ async function handleApi(req, res) {
     date: dayKey,
     timeZone: config.TIME_ZONE,
     id: joke.id,
+    url: seo.permalink(dayKey, joke.text),
     joke: joke.text,
     setup: punchline ? setup : null,
     punchline,
@@ -529,7 +531,102 @@ function legalContact() {
   };
 }
 
-async function handleStatic(req, res, pathname) {
+// ---------- Search engines and sharing: archive pages, sitemap, robots, share images ----------
+
+// Past jokes never change: browsers keep them 5 min, a CDN (Cloudflare…) a day.
+const ARCHIVE_CACHE = 'public, max-age=300, s-maxage=86400, stale-while-revalidate=86400';
+
+function sendHtml(res, status, html, cache = 'no-store') {
+  send(res, status, versionAssets(html), { 'Content-Type': MIME['.html'], 'Cache-Control': cache });
+}
+
+function notFoundPage(res) {
+  const html = `<!doctype html><html lang="fr"><head><meta charset="utf-8"><meta name="robots" content="noindex">
+<meta name="viewport" content="width=device-width, initial-scale=1"><title>Blague introuvable</title>
+<link rel="stylesheet" href="/styles.css"></head><body><main class="page message-page">
+<div class="card"><div><h1 class="title">Blague introuvable</h1><p class="message">Cette blague n’existe pas (ou plus).</p>
+<p><a class="button" href="/blagues">Toutes les blagues</a></p></div></div></main></body></html>`;
+  sendHtml(res, 404, html);
+}
+
+function handleSeo(req, res, pathname, searchParams) {
+  if (pathname === '/robots.txt') {
+    send(res, 200, seo.robots(), { 'Content-Type': MIME['.txt'], 'Cache-Control': 'public, max-age=3600' });
+    return true;
+  }
+  if (pathname === '/sitemap.xml') {
+    send(res, 200, seo.sitemap(), { 'Content-Type': 'application/xml; charset=utf-8', 'Cache-Control': 'public, max-age=3600' });
+    return true;
+  }
+  let m = pathname.match(/^\/og\/(\d{4}-\d{2}-\d{2})\.png$/);
+  if (m) {
+    const png = seo.ogImage(m[1]);
+    if (!png) { send(res, 404, 'Not found', { 'Content-Type': MIME['.txt'] }); return true; }
+    const past = m[1] < jokePeriod().key;
+    send(res, 200, req.method === 'HEAD' ? undefined : png, {
+      'Content-Type': MIME['.png'],
+      'Cache-Control': past ? 'public, max-age=86400' : 'public, max-age=300',
+    });
+    return true;
+  }
+  if (pathname === '/blagues' || pathname === '/blagues/') {
+    sendHtml(res, 200, seo.indexPage(seo.archive()), 'public, max-age=300, s-maxage=3600');
+    return true;
+  }
+  m = pathname.match(/^\/blagues\/(\d{4}-\d{2})$/);
+  if (m) {
+    const html = seo.monthPage(m[1], seo.archive());
+    if (html) sendHtml(res, 200, html, 'public, max-age=300, s-maxage=3600');
+    else notFoundPage(res);
+    return true;
+  }
+  m = pathname.match(/^\/blague\/(\d{4}-\d{2}-\d{2})(?:-(.*))?$/);
+  if (m) {
+    const [, day, slug = ''] = m;
+    const query = searchParams.toString() ? `?${searchParams}` : '';
+    // Today's joke is the home page (no spoiler, no duplicate); the link keeps working tomorrow.
+    if (day === jokePeriod().key) {
+      send(res, 302, undefined, { Location: `/${query}`, 'Cache-Control': 'no-store' });
+      return true;
+    }
+    const list = seo.archive();
+    const entry = list.find((e) => e.day === day);
+    if (!entry) { notFoundPage(res); return true; }
+    if (slug !== entry.slug) { // wrong or missing slug: one canonical URL per joke
+      send(res, 301, undefined, { Location: `${seo.pathOf(entry)}${query}`, 'Cache-Control': ARCHIVE_CACHE });
+      return true;
+    }
+    sendHtml(res, 200, seo.jokePage(entry, list), ARCHIVE_CACHE);
+    return true;
+  }
+  return false;
+}
+
+// The home page carries today's joke in its HTML (search engines and share previews do not run
+// JavaScript). A two-part joke shows its setup on the front face; the answer is on the back face.
+async function homeFill() {
+  const attrs = {
+    HEAD_SEO: seo.homeHead(jokePeriod().key, null),
+    CARD_HIDDEN: '', FLIP_HIDDEN: ' hidden',
+    JOKE_TEXT: '<span class="placeholder">Chargement de la blague du jour…</span>', SETUP: '', PUNCHLINE: '',
+  };
+  try {
+    const { dayKey, joke } = await getTodayJoke();
+    attrs.HEAD_SEO = seo.homeHead(dayKey, joke);
+    if (joke.unavailable) return attrs;
+    const { setup, punchline } = seo.splitJoke(joke.text);
+    if (punchline) {
+      Object.assign(attrs, { CARD_HIDDEN: ' hidden', FLIP_HIDDEN: '', SETUP: escapeHtml(setup), PUNCHLINE: escapeHtml(punchline) });
+    } else {
+      attrs.JOKE_TEXT = escapeHtml(joke.text);
+    }
+  } catch (err) {
+    console.warn(`[home] joke not in the HTML: ${err.message}`);
+  }
+  return attrs;
+}
+
+async function handleStatic(req, res, pathname, searchParams = new URLSearchParams()) {
   if (pathname === '/') pathname = '/index.html';
   if (pathname === '/confidentialite' || pathname === '/conditions') pathname += '.html';
   const filePath = path.normalize(path.join(PUBLIC_DIR, pathname));
@@ -538,7 +635,12 @@ async function handleStatic(req, res, pathname) {
     let data = await fsp.readFile(filePath);
     const ext = path.extname(filePath);
     if (ext === '.html') {
-      data = data.toString('utf8')
+      data = data.toString('utf8');
+      if (pathname === '/index.html') {
+        const fill = await homeFill();
+        for (const [key, value] of Object.entries(fill)) data = data.replaceAll(`%${key}%`, () => value);
+      }
+      data = data
         .replaceAll('%SCHEDULE%', escapeHtml(config.SCHEDULE_TEXT))
         .replaceAll('%HISTORY_DAYS%', String(config.HISTORY_DAYS))
         .replaceAll('%SITE_NAME%', escapeHtml(config.SITE_NAME))
@@ -550,9 +652,11 @@ async function handleStatic(req, res, pathname) {
         .replaceAll('%PRIVACY_EMAIL_LINK%', legalContact().emailLink);
     }
     if (ext === '.html' || ext === '.webmanifest') data = versionAssets(data.toString('utf8'));
+    // Files with a ?v=<fingerprint> URL change URL on every deploy: they can be kept for good.
+    const fingerprinted = searchParams.has('v') && ['.css', '.js', '.png', '.svg'].includes(ext);
     send(res, 200, req.method === 'HEAD' ? undefined : data, {
       'Content-Type': MIME[ext] || 'application/octet-stream',
-      'Cache-Control': 'no-store',
+      'Cache-Control': fingerprinted ? 'public, max-age=31536000, immutable' : 'no-store',
     });
   } catch {
     send(res, 404, 'Not found', { 'Content-Type': MIME['.txt'] });
@@ -567,8 +671,9 @@ const server = http.createServer(async (req, res) => {
     if (req.method !== 'GET' && req.method !== 'HEAD') return send(res, 405, 'Method not allowed');
     if (pathname === '/api/joke') return await handleApi(req, res);
     if (pathname === '/api/history') return handleHistory(req, res);
+    if (handleSeo(req, res, pathname, searchParams)) return;
     if (pathname === '/healthz') return send(res, 200, 'ok', { 'Content-Type': MIME['.txt'] });
-    return await handleStatic(req, res, decodeURIComponent(pathname));
+    return await handleStatic(req, res, decodeURIComponent(pathname), searchParams);
   } catch (err) {
     if (!err.status) console.error(err);
     if (!res.headersSent) send(res, err.status || 500, err.status ? err.message : 'Internal error');
@@ -577,6 +682,7 @@ const server = http.createServer(async (req, res) => {
 
 config.load(DATA_DIR);
 loadStore();
+const seo = createSeo({ getStore: () => store, currentKey: () => jokePeriod().key });
 const notifier = createNotifier({
   dataDir: DATA_DIR,
   getCurrentJoke: () => getTodayJoke().then(({ dayKey, joke }) => ({ key: dayKey, joke })),

@@ -3,8 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <title>%SITE_NAME%</title>
-  <meta name="description" content="Une nouvelle blague plate %SCHEDULE%.">
+  %HEAD_SEO%
   <meta name="theme-color" content="#dbf2fc" media="(prefers-color-scheme: light)">
   <meta name="theme-color" content="#041c38" media="(prefers-color-scheme: dark)">
   <meta name="color-scheme" content="light dark">
@@ -32,19 +31,19 @@
       </button>
     </header>
 
-    <article class="card" aria-live="polite" aria-busy="true" id="card">
-      <p class="joke" id="joke"><span class="placeholder">Chargement de la blague du jour…</span></p>
+    <article class="card" aria-live="polite" aria-busy="true" id="card"%CARD_HIDDEN%>
+      <p class="joke" id="joke">%JOKE_TEXT%</p>
     </article>
 
-    <div class="flip" id="flip" role="button" tabindex="0" aria-pressed="false" hidden
+    <div class="flip" id="flip" role="button" tabindex="0" aria-pressed="false"%FLIP_HIDDEN%
          aria-label="Retourner la carte pour voir la réponse">
       <div class="flip-inner" id="flip-inner">
         <div class="face front card" id="front">
-          <p class="joke" id="setup"></p>
+          <p class="joke" id="setup">%SETUP%</p>
           <p class="hint" aria-hidden="true">Glisse pour la réponse <span class="chevron">›</span></p>
         </div>
         <div class="face back card" id="back" aria-hidden="true">
-          <p class="joke" id="punchline"></p>
+          <p class="joke" id="punchline">%PUNCHLINE%</p>
           <p class="hint" aria-hidden="true"><span class="chevron">‹</span> Glisse pour revenir</p>
         </div>
       </div>
@@ -63,7 +62,7 @@
 
   <footer class="footer">
     <p id="source">&nbsp;</p>
-    <p class="legal-links"><button class="link-button" id="report" type="button" aria-haspopup="dialog" hidden>Signaler</button><span class="sep" id="report-sep" hidden> · </span><a href="/confidentialite">Confidentialité</a> · <a href="/conditions">Conditions</a></p>
+    <p class="legal-links"><button class="link-button" id="report" type="button" aria-haspopup="dialog" hidden>Signaler</button><span class="sep" id="report-sep" hidden> · </span><a href="/blagues">Toutes les blagues</a> · <a href="/confidentialite">Confidentialité</a> · <a href="/conditions">Conditions</a></p>
   </footer>
 
   <dialog class="sheet history" id="history-dialog" aria-labelledby="history-title">
@@ -74,6 +73,7 @@
     <div class="history-body">
       <ol class="history-list" id="history-list"></ol>
       <p class="history-empty" id="history-empty" hidden>Pas encore d’anciennes blagues. Reviens demain !</p>
+      <p class="history-more"><a href="/blagues">Voir toutes les blagues passées</a></p>
     </div>
   </dialog>
 

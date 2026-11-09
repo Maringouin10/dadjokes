@@ -62,11 +62,15 @@ function referrerHost(referrer, host) {
 
 // A visit counts as human when it comes from the QR code, the installed app (PWA),
 // or a search engine listed in HUMAN_REFERRERS (google by default).
-function originOf({ qr, pwa, ref }) {
+// Also human: a social network (SOCIAL_REFERRERS) or a link shared with ?src=<name>
+// (apps like WhatsApp send no referrer, so shared links carry their own tag).
+function originOf({ qr, pwa, ref, src }) {
   if (qr) return 'Code QR';
   if (pwa) return 'Application (PWA)';
   const engine = ref && config.HUMAN_REFERRERS.find((word) => ref.split('.').includes(word));
-  return engine ? `Recherche ${engine[0].toUpperCase()}${engine.slice(1)}` : null;
+  if (engine) return `Recherche ${engine[0].toUpperCase()}${engine.slice(1)}`;
+  if (ref && config.SOCIAL_REFERRERS.some((word) => ref.split('.').includes(word))) return 'Réseaux sociaux';
+  return src ? 'Lien partagé' : null;
 }
 
 function bump(map, key, n = 1) {
@@ -159,7 +163,8 @@ function createStats({ dataDir, ads, diagnose: diagnoseNotifications, getJokes =
       return scheduleSave();
     }
     const ref = referrerHost(body.ref, req.headers.host);
-    const origin = originOf({ qr: body.qr === true || typeof body.qr === 'string', pwa: body.pwa === true, ref });
+    const src = typeof body.src === 'string' && /^[a-z0-9_-]{1,20}$/i.test(body.src) ? body.src.toLowerCase() : null;
+    const origin = originOf({ qr: body.qr === true || typeof body.qr === 'string', pwa: body.pwa === true, ref, src });
     const campaign = typeof body.qr === 'string' && Object.hasOwn(data.campaigns, body.qr) ? body.qr : null;
     if (!origin) {
       day.others += 1;
@@ -193,7 +198,7 @@ function createStats({ dataDir, ads, diagnose: diagnoseNotifications, getJokes =
     ((day.hourOrigins ||= {})[origin] ||= Array(24).fill(0))[hour] += 1; // where visits come from, per hour
     bump(day.countries, country);
     if (city) bump(day.cities, `${String(city).slice(0, 60)}, ${country}`);
-    bump(day.sources, ref || 'Direct');
+    bump(day.sources, ref || (src ? `Lien ?src=${src}` : 'Direct'));
     bump(day.devices, deviceOf(ua));
     scheduleSave();
   }
@@ -558,7 +563,12 @@ ${error ? `<p class="notice error" role="alert" style="margin:0">${escapeHtml(er
     const list = [
       { key: 'qr', label: 'Code QR principal' },
       { key: 'pwa', label: 'Appli installée' },
-      ...config.HUMAN_REFERRERS.map((w) => ({ key: `o:Recherche ${w[0].toUpperCase()}${w.slice(1)}`, label: `Recherche ${w[0].toUpperCase()}${w.slice(1)}` })),
+      // Only the search engines that actually sent visits, so the places' QR codes keep their slots.
+      ...config.HUMAN_REFERRERS.map((w) => `Recherche ${w[0].toUpperCase()}${w.slice(1)}`)
+        .filter((label) => Object.values(data.days).some((d) => d.origins?.[label]))
+        .map((label) => ({ key: `o:${label}`, label })),
+      { key: 'o:Réseaux sociaux', label: 'Réseaux sociaux' },
+      { key: 'o:Lien partagé', label: 'Liens partagés (?src=)' },
       ...Object.entries(data.campaigns).filter(([, c]) => !c.parent).sort(([, a], [, b]) => a.createdAt.localeCompare(b.createdAt))
         .map(([slug, c]) => ({ key: `qr:${slug}`, label: `QR · ${c.name}` })),
     ];
@@ -845,7 +855,7 @@ ${todayCard}
     const opened = installs.filter((i) => i.last >= period.keys[0]).length;
     const card = (title, body) => `<div class="card"><h2>${title} <small>${escapeHtml(n)}</small></h2>${body}</div>`;
 
-    return page('Vue d’ensemble', 'stats', `${head('Vue d’ensemble', `Visites humaines (code QR, appli installée, recherche ${escapeHtml(config.HUMAN_REFERRERS.join(', '))}) · ${escapeHtml(config.TIME_ZONE)}`, viewSelector(view, '/admin'))}
+    return page('Vue d’ensemble', 'stats', `${head('Vue d’ensemble', `Visites humaines (code QR, appli installée, recherche ${escapeHtml(config.HUMAN_REFERRERS.join(', '))}, réseaux sociaux, liens ?src=) · ${escapeHtml(config.TIME_ZONE)}`, viewSelector(view, '/admin'))}
 <div class="kpis">
 <div class="kpi"><span>Visites · ${escapeHtml(period.name)}</span><b>${fmt(views)}</b>${delta(view, (d) => d, views)}</div>
 <div class="kpi"><span>Visiteurs uniques</span><b>${view === 'heure' ? '—' : fmt(total(series, 'uniques'))}</b><small>${view === 'heure' ? 'non compté par heure' : 'additionnés par jour'}</small></div>

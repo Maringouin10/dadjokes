@@ -28,7 +28,8 @@ const SETTINGS = [
   { group: 'Admin et statistiques', key: 'ADMIN_PASSWORD', label: 'Mot de passe admin', type: 'secret', def: '', help: 'Le changer te déconnecte. 10 caractères minimum.', validate: (v) => v.length >= 10 || '10 caractères minimum' },
   { group: 'Admin et statistiques', key: 'ADMIN_SESSION_DAYS', label: 'Durée de connexion (jours)', type: 'number', def: 7, min: 1, max: 365 },
   { group: 'Admin et statistiques', key: 'STATS_DAYS', label: 'Jours affichés dans les stats', type: 'number', def: 30, min: 7, max: 365 },
-  { group: 'Admin et statistiques', key: 'HUMAN_REFERRERS', label: 'Moteurs de recherche comptés comme humains', type: 'text', def: 'google', help: 'Séparés par des virgules (ex. google,bing,duckduckgo). Le code QR et l’app comptent toujours.' },
+  { group: 'Admin et statistiques', key: 'HUMAN_REFERRERS', label: 'Moteurs de recherche comptés comme humains', type: 'text', def: 'google,bing,duckduckgo,qwant,ecosia,yahoo', help: 'Séparés par des virgules (ex. google,bing,duckduckgo). Le code QR et l’app comptent toujours.' },
+  { group: 'Admin et statistiques', key: 'SOCIAL_REFERRERS', label: 'Réseaux sociaux comptés comme humains', type: 'text', def: 'facebook,instagram,tiktok,youtube,reddit,pinterest,linkedin,twitter,x,threads,snapchat,whatsapp,messenger,telegram', help: 'Séparés par des virgules. Une visite venant de l’un d’eux compte comme humaine (« Réseaux sociaux »).' },
 
   { group: 'Code QR, étiquettes et affiches', key: 'QR_URL', label: 'Adresse du code QR', type: 'text', def: '', help: 'Vide = adresse du site + /?qr (le ?qr compte les scans).', validate: (v) => !v || validUrl(v) },
   { group: 'Code QR, étiquettes et affiches', key: 'QR_TEXT', label: 'Adresse écrite sous le code', type: 'text', def: '', help: 'Vide = adresse du site sans https://' },
@@ -160,7 +161,7 @@ for (const setting of SETTINGS) {
       if (setting.key === 'PUBLIC_URL') return value.replace(/\/+$/, '');
       if (setting.key === 'QR_URL') return value || `${config.SITE_URL}/?qr`;
       if (setting.key === 'QR_TEXT') return value || config.SITE_URL.replace(/^https?:\/\//, '');
-      if (setting.key === 'HUMAN_REFERRERS') return value.split(',').map((s) => s.trim().toLowerCase()).filter(Boolean);
+      if (setting.key === 'HUMAN_REFERRERS' || setting.key === 'SOCIAL_REFERRERS') return value.split(',').map((s) => s.trim().toLowerCase()).filter(Boolean);
       return value;
     },
   });

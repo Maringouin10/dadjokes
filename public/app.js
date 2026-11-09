@@ -296,15 +296,17 @@
     if (!current) return;
     const body = current.punchline ? `${current.setup}\n… ${current.punchline}` : current.joke;
     const text = `${body}\n\n— La blague plate du jour`;
+    // Permanent link of this joke; ?src=partage tells the stats the visit came from a share.
+    const link = `${current.url || location.origin}${current.url ? '?src=partage' : ''}`;
     if (navigator.share) {
       try {
-        await navigator.share({ title: 'La blague plate du jour', text, url: location.origin });
+        await navigator.share({ title: 'La blague plate du jour', text, url: link });
         return;
       } catch (err) {
         if (err && err.name === 'AbortError') return; // user closed the share sheet
       }
     }
-    toast(await copy(`${text}\n${location.origin}`)
+    toast(await copy(`${text}\n${link}`)
       ? 'Blague copiée dans le presse-papier'
       : 'Impossible de copier la blague');
   });

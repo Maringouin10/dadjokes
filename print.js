@@ -243,4 +243,24 @@ function labelPng(dpi = 300, qrUrl = config.QR_URL) {
   return new Resvg(labelSvg(qrUrl), { fitTo: { mode: 'width', value: width }, font: { loadSystemFonts: false } }).render().asPng();
 }
 
-module.exports = { labelPdf, labelPng, posterPdf };
+// Share preview (1200 × 630): the setup of a joke on a card, never the punchline.
+function ogSvg(text, teaser) {
+  const W = 1200; const H = 630; const { regular, bold } = FONTS;
+  const pad = 90; const textW = W - 2 * pad;
+  const size = fitBlock(bold, text, textW, 300, 76, 34);
+  const bodyH = blockHeight(bold, text, size, textW);
+  const top = 150 + (300 - bodyH) / 2;
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}">
+<rect width="${W}" height="${H}" fill="#dbf2fc"/>
+<rect x="50" y="50" width="${W - 100}" height="${H - 100}" rx="36" fill="#fff"/>
+<rect x="50" y="50" width="${W - 100}" height="14" rx="7" fill="#fd6e88"/>
+<g fill="#072d59">${textPaths(regular, config.SITE_NAME.toUpperCase(), 26, pad, 100, textW)}${textPaths(bold, text, size, pad, top, textW)}</g>
+<g fill="#d6405e">${textPaths(bold, teaser, 34, pad, 470, textW)}</g>
+<g fill="#4a6385">${textPaths(regular, config.SITE_URL.replace(/^https?:\/\//, ''), 28, pad, 520, textW)}</g></svg>`;
+}
+
+function ogPng(text, teaser = 'Retourne la carte pour la réponse →') {
+  return new Resvg(ogSvg(text, teaser), { font: { loadSystemFonts: false } }).render().asPng();
+}
+
+module.exports = { labelPdf, labelPng, posterPdf, ogPng };
