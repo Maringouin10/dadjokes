@@ -7,6 +7,7 @@
 const config = require('./config');
 const { escapeHtml } = require('./notifications');
 const { ogPng } = require('./print');
+const { THEMES, BY_SLUG, MIN_JOKES, themesOf } = require('./themes');
 
 const DAY = /^\d{4}-\d{2}-\d{2}$/;
 const MONTH = /^\d{4}-\d{2}$/;
@@ -46,19 +47,44 @@ const jsonLd = (data) => `<script type="application/ld+json">${JSON.stringify(da
 function createSeo({ getStore, currentKey }) {
   const base = () => config.SITE_URL;
 
-  // Past, shown, French, non-fallback, not removed: sorted newest first.
-  function archive() {
+  // Everything that has a page, newest first: the past daily jokes (/blague/<date>-<slug>) and the library
+  // (/blague/n<number>-<slug>). Past, French, not removed, not from the local fallback list.
+  // Recomputed at most once a minute (ratings change, thousands of jokes are cheap but not free).
+  let memo = null;
+  function load() {
     const store = getStore();
-    const banned = new Set(store.banned || []);
     const today = currentKey();
-    return Object.entries(store.days)
+    if (memo && memo.today === today && Date.now() - memo.at < 60e3) return memo;
+    const banned = new Set(store.banned || []);
+    const make = (fields, j) => {
+      const { setup, punchline } = splitJoke(j.text);
+      const slug = slugOf(setup);
+      return { ...fields, joke: j, setup, punchline, slug, themes: themesOf(j.text) };
+    };
+    const daily = Object.entries(store.days)
       .filter(([day, j]) => DAY.test(day) && day < today && j.lang === 'fr' && !j.unavailable && !j.fallback && !banned.has(j.id))
-      .sort(([a], [b]) => (a < b ? 1 : -1))
-      .map(([day, j]) => ({ day, joke: j, ...splitJoke(j.text), slug: slugOf(splitJoke(j.text).setup) }));
+      .map(([day, j]) => make({ kind: 'day', key: day, day, sortKey: `${day}|0` }, j));
+    const library = (store.library || [])
+      .filter((j) => j.lang === 'fr' && !banned.has(j.id))
+      .map((j) => make({ kind: 'lib', key: `n${j.n}`, day: null, n: j.n, sortKey: `${String(j.addedAt).slice(0, 10)}|${String(j.n).padStart(6, '0')}` }, j));
+    for (const e of [...daily, ...library]) e.path = `/blague/${e.key}${e.slug ? `-${e.slug}` : ''}`;
+    const byNew = (a, b2) => (a.sortKey < b2.sortKey ? 1 : -1);
+    daily.sort(byNew);
+    library.sort(byNew);
+    const all = [...daily, ...library].sort(byNew);
+    const themes = new Map(THEMES.map((t) => [t.slug, all.filter((e) => e.themes.includes(t.slug))]));
+    const rated = daily.filter((e) => e.joke.ratings && e.joke.ratings.count >= 3)
+      .sort((a, b2) => b2.joke.ratings.sum / b2.joke.ratings.count - a.joke.ratings.sum / a.joke.ratings.count
+        || b2.joke.ratings.count - a.joke.ratings.count);
+    memo = { at: Date.now(), today, daily, library, all, themes, rated, byKey: new Map(all.map((e) => [e.key, e])) };
+    return memo;
   }
 
-  const pathOf = (e) => `/blague/${e.day}${e.slug ? `-${e.slug}` : ''}`;
-  const urlOf = (e) => `${base()}${pathOf(e)}`;
+  const archive = () => load().daily; // kept for the callers that only need the daily ones
+  const pathOf = (e) => e.path;
+  const urlOf = (e) => `${base()}${e.path}`;
+  const liveThemes = () => THEMES.filter((t) => load().themes.get(t.slug).length >= MIN_JOKES);
+  const PAGE = 50;
 
   // Permanent link of a joke by day, for the API (today's link shows the home page until tomorrow).
   function permalink(day, text) {
@@ -121,16 +147,21 @@ ${body}
 
   // ---------- One joke ----------
 
-  function jokePage(entry, list) {
-    const { day, joke, setup, punchline } = entry;
-    const i = list.findIndex((e) => e.day === day);
-    const newer = list[i - 1]; // the list is newest first
-    const older = list[i + 1];
+  const themeChips = (e) => e.themes.map((slug) => BY_SLUG.get(slug)).filter((t) => t && load().themes.get(t.slug).length >= MIN_JOKES)
+    .map((t) => `<a class="chip" href="/blagues/theme/${t.slug}">${escapeHtml(t.name.replace(/^Blagues (?:de |d’)?/, ''))}</a>`).join('');
+
+  function jokePage(entry) {
+    const { joke, setup, punchline } = entry;
+    const data = load();
+    const kindList = entry.kind === 'day' ? data.daily : data.library; // newest first
+    const i = kindList.findIndex((e) => e.key === entry.key);
+    const newer = kindList[i - 1];
+    const older = kindList[i + 1];
     const url = urlOf(entry);
-    const date = longDate(day);
-    const title = `${clip(setup, 70)} | Blague du ${date}`;
-    const description = clip(`${sentence(setup)} Découvre la chute de cette blague plate du ${date}, et une nouvelle blague chaque jour.`, 160);
-    const link = (e, label) => `<a class="doc-nav-link" href="${pathOf(e)}" rel="${label === 'older' ? 'prev' : 'next'}">${label === 'older' ? '‹ Blague précédente' : 'Blague suivante ›'}</a>`;
+    const date = entry.day ? longDate(entry.day) : null;
+    const title = entry.day ? `${clip(setup, 70)} | Blague du ${date}` : `${clip(setup, 70)} | Blague plate`;
+    const description = clip(`${sentence(setup)} Découvre la chute de cette blague plate${date ? ` du ${date}` : ''}, et une nouvelle blague chaque jour.`, 160);
+    const link = (e, which) => `<a class="doc-nav-link" href="${e.path}" rel="${which === 'older' ? 'prev' : 'next'}">${which === 'older' ? '‹ Blague précédente' : 'Blague suivante ›'}</a>`;
     const ratings = joke.ratings && joke.ratings.count >= 3
       ? `<p class="doc-rating">Note des visiteurs : <b>${(joke.ratings.sum / joke.ratings.count).toFixed(1).replace('.', ',')}/10</b> (${joke.ratings.count} votes)</p>` : '';
     const source = joke.sourceUrl
@@ -138,14 +169,22 @@ ${body}
       : `Source : ${escapeHtml(joke.source)}`;
     const shareText = encodeURIComponent(`${setup}${punchline ? '\n… ' + punchline : ''}\n\n`);
     const enc = (src) => encodeURIComponent(`${url}?src=${src}`);
-    const more = list.slice(Math.max(0, i - 3), i + 4).filter((e) => e.day !== day);
+    // Related: the neighbours in the first theme that has a page, else in the same list.
+    const themeSlug = entry.themes.find((slug) => slug !== 'courtes' && data.themes.get(slug).length >= MIN_JOKES);
+    const pool = themeSlug ? data.themes.get(themeSlug) : kindList;
+    const at = pool.findIndex((e) => e.key === entry.key);
+    const more = pool.slice(Math.max(0, at - 3), at + 4).filter((e) => e.key !== entry.key);
+    const contact = config.PRIVACY_EMAIL || config.EMAIL_REPLY_TO;
+    const report = contact && contact.includes('@')
+      ? `<p class="doc-report"><a href="mailto:${escapeHtml(contact)}?subject=${encodeURIComponent(`Signaler une blague : ${url}`)}">Signaler cette blague</a></p>` : '';
     const body = `    <article class="history-item doc-joke">
-      <p class="history-date"><time datetime="${day}">${escapeHtml(date)}</time></p>
+      <p class="history-date">${date ? `<time datetime="${entry.day}">${escapeHtml(date)}</time>` : 'Blague plate'}</p>
       <h1 class="doc-setup">${escapeHtml(setup)}</h1>
       ${punchline ? `<details class="doc-answer"><summary>Voir la réponse</summary><p class="doc-punchline">${escapeHtml(punchline)}</p></details>` : ''}
       ${ratings}
       <p class="history-source">${source} · contenu externe, nous n’en sommes pas responsables</p>
     </article>
+    ${themeChips(entry) ? `<p class="doc-chips">${themeChips(entry)}</p>` : ''}
     <p class="doc-share">
       <a class="button secondary" href="https://wa.me/?text=${shareText}${enc('wa')}" target="_blank" rel="noopener noreferrer">WhatsApp</a>
       <a class="button secondary" href="https://www.facebook.com/sharer/sharer.php?u=${enc('fb')}" target="_blank" rel="noopener noreferrer">Facebook</a>
@@ -153,72 +192,138 @@ ${body}
     </p>
     <nav class="doc-nav" aria-label="Autres blagues">${older ? link(older, 'older') : '<span></span>'}${newer ? link(newer, 'newer') : '<span></span>'}</nav>
     <p class="doc-cta"><a class="button" href="/?src=archive">Voir la blague d’aujourd’hui</a></p>
-    ${more.length ? `<section class="doc-more"><h2 class="doc-h2">D’autres blagues</h2><ul class="doc-list">${more.map((e) => `<li><a href="${pathOf(e)}">${escapeHtml(e.setup)}</a></li>`).join('')}</ul></section>` : ''}`;
+    ${more.length ? `<section class="doc-more"><h2 class="doc-h2">D’autres blagues${themeSlug ? ` : ${escapeHtml(BY_SLUG.get(themeSlug).name.toLowerCase().replace(/^blagues /, ''))}` : ''}</h2><ul class="doc-list">${more.map((e) => `<li><a href="${e.path}">${escapeHtml(e.setup)}</a></li>`).join('')}</ul></section>` : ''}
+    ${report}`;
     return layout({
-      title, description, canonical: url, image: `${base()}/og/${day}.png`, body,
+      title, description, canonical: url, image: `${base()}/og/${entry.key}.png`, body,
       extraHead: `${jsonLd({
         '@context': 'https://schema.org', '@type': 'WebPage', name: title, url, inLanguage: 'fr',
-        datePublished: day, isPartOf: { '@type': 'WebSite', name: config.SITE_NAME, url: base() },
+        ...(entry.day ? { datePublished: entry.day } : {}), isPartOf: { '@type': 'WebSite', name: config.SITE_NAME, url: base() },
       })}
   ${breadcrumb([[config.SITE_NAME, `${base()}/`], ['Blagues', `${base()}/blagues`], [clip(setup, 60), url]])}`,
     });
   }
 
-  // ---------- Archive: /blagues and /blagues/<YYYY-MM> ----------
+  // ---------- Lists: archive, months, themes, best ----------
 
-  function months(list) {
+  const jokeList = (entries) => `<ul class="doc-list">${entries.map((e) => `<li><a href="${e.path}">${escapeHtml(e.setup)}</a>${e.day ? ` <span class="doc-date">${escapeHtml(longDate(e.day))}</span>` : ''}</li>`).join('')}</ul>`;
+
+  const pager = (basePath, page, pages) => (pages <= 1 ? '' : `<nav class="doc-nav" aria-label="Pages">${
+    page > 1 ? `<a class="doc-nav-link" href="${page === 2 ? basePath : `${basePath}/${page - 1}`}" rel="prev">‹ Page précédente</a>` : '<span></span>'}<span class="doc-date">Page ${page} sur ${pages}</span>${
+    page < pages ? `<a class="doc-nav-link" href="${basePath}/${page + 1}" rel="next">Page suivante ›</a>` : '<span></span>'}</nav>`);
+
+  function months() {
     const out = new Map();
-    for (const e of list) out.set(e.day.slice(0, 7), (out.get(e.day.slice(0, 7)) || 0) + 1);
+    for (const e of load().daily) out.set(e.day.slice(0, 7), (out.get(e.day.slice(0, 7)) || 0) + 1);
     return [...out];
   }
 
-  const jokeList = (entries) => `<ul class="doc-list">${entries.map((e) => `<li><a href="${pathOf(e)}">${escapeHtml(e.setup)}</a> <span class="doc-date">${escapeHtml(longDate(e.day))}</span></li>`).join('')}</ul>`;
+  const hubLinks = () => {
+    const data = load();
+    const links = liveThemes().map((t) => `<li><a href="/blagues/theme/${t.slug}">${escapeHtml(t.name)}</a> <span class="doc-date">${data.themes.get(t.slug).length} blagues</span></li>`);
+    if (data.rated.length >= MIN_JOKES) links.unshift(`<li><a href="/blagues/meilleures">Les meilleures blagues</a> <span class="doc-date">selon les notes des visiteurs</span></li>`);
+    return links.length ? `<section><h2 class="doc-h2">Par thème</h2><ul class="doc-list">${links.join('')}</ul></section>` : '';
+  };
 
-  function indexPage(list) {
-    const url = `${base()}/blagues`;
-    const monthLinks = months(list).map(([m, n]) => `<li><a href="/blagues/${m}">${escapeHtml(monthName(m))}</a> <span class="doc-date">${n} blague${n > 1 ? 's' : ''}</span></li>`).join('');
+  // /blagues (page 1) and /blagues/page/<n>
+  function indexPage(page = 1) {
+    const { all } = load();
+    const pages = Math.max(1, Math.ceil(all.length / PAGE));
+    if (page < 1 || page > pages) return null;
+    const url = page === 1 ? `${base()}/blagues` : `${base()}/blagues/page/${page}`;
+    const monthLinks = months().map(([m, n]) => `<li><a href="/blagues/${m}">${escapeHtml(monthName(m))}</a> <span class="doc-date">${n} blague${n > 1 ? 's' : ''} du jour</span></li>`).join('');
     const body = `    <h1 class="doc-h1">Toutes les blagues plates</h1>
-    <p class="doc-intro">Une nouvelle blague plate chaque jour : voici toutes celles déjà publiées, avec leur réponse.</p>
-    <section><h2 class="doc-h2">Les plus récentes</h2>${list.length ? jokeList(list.slice(0, 30)) : '<p class="doc-intro">Pas encore d’anciennes blagues. Reviens demain !</p>'}</section>
-    ${monthLinks ? `<section><h2 class="doc-h2">Par mois</h2><ul class="doc-list">${monthLinks}</ul></section>` : ''}`;
+    <p class="doc-intro">Une nouvelle blague plate chaque jour : voici toutes celles publiées, avec leur réponse.</p>
+    ${page === 1 ? hubLinks() : ''}
+    <section><h2 class="doc-h2">${page === 1 ? 'Les plus récentes' : `Page ${page}`}</h2>${all.length ? jokeList(all.slice((page - 1) * PAGE, page * PAGE)) : '<p class="doc-intro">Pas encore d’anciennes blagues. Reviens demain !</p>'}</section>
+    ${pager('/blagues/page', page, pages).replace('href="/blagues/page"', 'href="/blagues"')}
+    ${page === 1 && monthLinks ? `<section><h2 class="doc-h2">Les blagues du jour, mois par mois</h2><ul class="doc-list">${monthLinks}</ul></section>` : ''}`;
     return layout({
-      title: `Toutes les blagues plates | ${config.SITE_NAME}`,
-      description: 'Toutes les blagues plates publiées chaque jour sur La blague plate du jour, avec leur réponse. Une nouvelle blague chaque jour.',
+      title: `Toutes les blagues plates${page > 1 ? ` (page ${page})` : ''} | ${config.SITE_NAME}`,
+      description: 'Toutes les blagues plates de La blague plate du jour, avec leur réponse : par thème, par mois, les meilleures. Une nouvelle blague chaque jour.',
       canonical: url, body,
-      extraHead: breadcrumb([[config.SITE_NAME, `${base()}/`], ['Blagues', url]]),
+      extraHead: breadcrumb([[config.SITE_NAME, `${base()}/`], ['Blagues', `${base()}/blagues`]]),
     });
   }
 
-  function monthPage(month, list) {
-    const entries = list.filter((e) => e.day.startsWith(month));
+  function monthPage(month) {
+    const entries = load().daily.filter((e) => e.day.startsWith(month));
     if (!entries.length) return null;
     const url = `${base()}/blagues/${month}`;
     const name = monthName(month);
     const body = `    <h1 class="doc-h1">Blagues plates de ${escapeHtml(name)}</h1>
-    <p class="doc-intro">${entries.length} blague${entries.length > 1 ? 's' : ''} publiée${entries.length > 1 ? 's' : ''} en ${escapeHtml(name)}.</p>
+    <p class="doc-intro">${entries.length} blague${entries.length > 1 ? 's' : ''} du jour en ${escapeHtml(name)}.</p>
     <section>${jokeList(entries)}</section>
-    <p class="doc-cta"><a class="button secondary" href="/blagues">Tous les mois</a></p>`;
+    <p class="doc-cta"><a class="button secondary" href="/blagues">Toutes les blagues</a></p>`;
     return layout({
       title: `Blagues plates de ${name} | ${config.SITE_NAME}`,
-      description: clip(`Les blagues plates de ${name} : ${entries.slice(0, 3).map((e) => e.setup).join(' ')}`, 160),
+      description: clip(`Les blagues plates de ${name} : ${entries.slice(0, 3).map((e) => sentence(e.setup)).join(' ')}`, 160),
       canonical: url, body,
       extraHead: breadcrumb([[config.SITE_NAME, `${base()}/`], ['Blagues', `${base()}/blagues`], [name, url]]),
+    });
+  }
+
+  // /blagues/theme/<slug> and /blagues/theme/<slug>/<n>: only themes with enough jokes exist.
+  function themePage(slug, page = 1) {
+    const theme = BY_SLUG.get(slug);
+    const list = theme && load().themes.get(slug);
+    if (!list || list.length < MIN_JOKES) return null;
+    const pages = Math.ceil(list.length / PAGE);
+    if (page < 1 || page > pages) return null;
+    const basePath = `/blagues/theme/${slug}`;
+    const url = `${base()}${basePath}${page > 1 ? `/${page}` : ''}`;
+    const others = liveThemes().filter((t) => t.slug !== slug)
+      .map((t) => `<a class="chip" href="/blagues/theme/${t.slug}">${escapeHtml(t.name.replace(/^Blagues (?:de |d’)?/, ''))}</a>`).join('');
+    const body = `    <h1 class="doc-h1">${escapeHtml(theme.name)}</h1>
+    <p class="doc-intro">${escapeHtml(theme.intro)} ${list.length} blagues.</p>
+    <section>${jokeList(list.slice((page - 1) * PAGE, page * PAGE))}</section>
+    ${pager(basePath, page, pages)}
+    ${others ? `<section><h2 class="doc-h2">Autres thèmes</h2><p class="doc-chips">${others}</p></section>` : ''}
+    <p class="doc-cta"><a class="button secondary" href="/blagues">Toutes les blagues</a></p>`;
+    return layout({
+      title: `${theme.name}${page > 1 ? ` (page ${page})` : ''} | ${config.SITE_NAME}`,
+      description: clip(`${theme.intro} ${sentence(list[0].setup)}`, 160),
+      canonical: url, body,
+      extraHead: breadcrumb([[config.SITE_NAME, `${base()}/`], ['Blagues', `${base()}/blagues`], [theme.name, `${base()}${basePath}`]]),
+    });
+  }
+
+  // The best jokes, from the 1–10 ratings of the visitors (jokes of the day with at least 3 votes).
+  function bestPage() {
+    const { rated } = load();
+    if (rated.length < MIN_JOKES) return null;
+    const url = `${base()}/blagues/meilleures`;
+    const top = rated.slice(0, PAGE);
+    const body = `    <h1 class="doc-h1">Les meilleures blagues plates</h1>
+    <p class="doc-intro">Classées selon la note (sur 10) donnée par les visiteurs.</p>
+    <section><ul class="doc-list">${top.map((e) => `<li><a href="${e.path}">${escapeHtml(e.setup)}</a> <span class="doc-date">${(e.joke.ratings.sum / e.joke.ratings.count).toFixed(1).replace('.', ',')}/10 · ${e.joke.ratings.count} votes</span></li>`).join('')}</ul></section>
+    <p class="doc-cta"><a class="button secondary" href="/blagues">Toutes les blagues</a></p>`;
+    return layout({
+      title: `Les meilleures blagues plates | ${config.SITE_NAME}`,
+      description: clip(`Les blagues plates les mieux notées par les visiteurs : ${top.slice(0, 3).map((e) => sentence(e.setup)).join(' ')}`, 160),
+      canonical: url, body,
+      extraHead: breadcrumb([[config.SITE_NAME, `${base()}/`], ['Blagues', `${base()}/blagues`], ['Meilleures', url]]),
     });
   }
 
   // ---------- Sitemap and robots ----------
 
   function sitemap() {
-    const list = archive();
+    const data = load();
     const urls = [
       { loc: `${base()}/`, changefreq: 'daily', priority: '1.0' },
       { loc: `${base()}/blagues`, changefreq: 'daily', priority: '0.8' },
-      ...months(list).map(([m]) => ({ loc: `${base()}/blagues/${m}`, changefreq: 'monthly', priority: '0.6' })),
-      ...list.slice(0, 50000 - 100).map((e) => ({ loc: urlOf(e), lastmod: e.day, priority: '0.5' })),
+      ...Array.from({ length: Math.ceil(data.all.length / PAGE) - 1 }, (_, i) => ({ loc: `${base()}/blagues/page/${i + 2}`, changefreq: 'daily', priority: '0.4' })),
+      ...(data.rated.length >= MIN_JOKES ? [{ loc: `${base()}/blagues/meilleures`, changefreq: 'weekly', priority: '0.7' }] : []),
+      ...liveThemes().flatMap((t) => Array.from({ length: Math.ceil(data.themes.get(t.slug).length / PAGE) }, (_, i) => ({
+        loc: `${base()}/blagues/theme/${t.slug}${i ? `/${i + 1}` : ''}`, changefreq: 'weekly', priority: i ? '0.4' : '0.7',
+      }))),
+      ...months().map(([m]) => ({ loc: `${base()}/blagues/${m}`, changefreq: 'monthly', priority: '0.6' })),
     ];
+    const jokes = data.all.slice(0, 50000 - urls.length).map((e) => ({ loc: urlOf(e), lastmod: e.day || String(e.joke.addedAt).slice(0, 10), priority: '0.5' }));
     return `<?xml version="1.0" encoding="UTF-8"?>
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
-${urls.map((u) => `<url><loc>${escapeHtml(u.loc)}</loc>${u.lastmod ? `<lastmod>${u.lastmod}</lastmod>` : ''}${u.changefreq ? `<changefreq>${u.changefreq}</changefreq>` : ''}<priority>${u.priority}</priority></url>`).join('\n')}
+${[...urls, ...jokes].map((u) => `<url><loc>${escapeHtml(u.loc)}</loc>${u.lastmod ? `<lastmod>${u.lastmod}</lastmod>` : ''}${u.changefreq ? `<changefreq>${u.changefreq}</changefreq>` : ''}<priority>${u.priority}</priority></url>`).join('\n')}
 </urlset>
 `;
   }
@@ -236,17 +341,19 @@ Sitemap: ${base()}/sitemap.xml
   // ---------- Share images (1200 × 630, setup only) ----------
 
   const images = new Map();
-  function ogImage(day) {
-    const store = getStore();
-    const joke = store.days[day];
-    if (!DAY.test(day) || !joke || joke.lang !== 'fr' || joke.unavailable) return null;
-    const key = `${day}|${joke.id}`;
-    if (!images.has(key)) {
+  // key: a day (YYYY-MM-DD, today's joke included) or n<number> for a library joke.
+  function ogImage(key) {
+    let joke;
+    if (DAY.test(key)) joke = getStore().days[key];
+    else if (/^n\d+$/.test(key)) joke = (getStore().library || []).find((j) => `n${j.n}` === key);
+    if (!joke || joke.lang !== 'fr' || joke.unavailable) return null;
+    const cacheKey = `${key}|${joke.id}`;
+    if (!images.has(cacheKey)) {
       if (images.size >= 300) images.delete(images.keys().next().value);
       const { setup, punchline } = splitJoke(joke.text);
-      images.set(key, punchline ? ogPng(setup) : ogPng(setup, 'Une nouvelle blague plate chaque jour'));
+      images.set(cacheKey, punchline ? ogPng(setup) : ogPng(setup, 'Une nouvelle blague plate chaque jour'));
     }
-    return images.get(key);
+    return images.get(cacheKey);
   }
 
   // ---------- Home page: <head> tags and the joke itself in the HTML ----------
@@ -276,7 +383,7 @@ Sitemap: ${base()}/sitemap.xml
   ${jsonLd({ '@context': 'https://schema.org', '@type': 'WebSite', name: config.SITE_NAME, url, inLanguage: 'fr' })}`;
   }
 
-  return { archive, permalink, pathOf, jokePage, indexPage, monthPage, sitemap, robots, ogImage, homeHead, slugOf, splitJoke, MONTH, DAY };
+  return { load, archive, permalink, jokePage, indexPage, monthPage, themePage, bestPage, sitemap, robots, ogImage, homeHead, slugOf, splitJoke, MONTH, DAY };
 }
 
 module.exports = { createSeo };

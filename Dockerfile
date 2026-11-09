@@ -7,7 +7,7 @@ ENV NODE_ENV=production \
 WORKDIR /app
 COPY package.json package-lock.json ./
 RUN npm ci --omit=dev && npm cache clean --force
-COPY server.js config.js notifications.js email-templates.js stats.js ads.js print.js seo.js turnstile.js moderation.js fallback-jokes.json ./
+COPY server.js config.js notifications.js email-templates.js stats.js ads.js print.js seo.js themes.js library.js turnstile.js moderation.js fallback-jokes.json ./
 COPY public ./public
 COPY fonts ./fonts
 

@@ -654,3 +654,8 @@ body.doc { height: auto; min-height: 100vh; min-height: 100dvh; }
 .doc-date { display: block; font-size: 0.8125rem; color: var(--tertiary); }
 .history-more { margin: 14px 0 0; text-align: center; font-size: 0.9375rem; }
 .history-more a { color: var(--accent-text); }
+.doc-chips { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; margin: 0; }
+.chip { display: inline-flex; align-items: center; min-height: 36px; padding: 0 14px; border-radius: 18px; background: var(--card); color: var(--label) !important; font-size: 0.875rem; font-weight: 500; text-decoration: none; }
+.chip:hover { text-decoration: underline; }
+.doc-report { margin: 0; text-align: center; font-size: 0.75rem; }
+.doc-report a { color: var(--tertiary) !important; }

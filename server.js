@@ -15,6 +15,7 @@ const config = require('./config');
 const turnstile = require('./turnstile');
 const moderation = require('./moderation');
 const { createSeo } = require('./seo');
+const { createLibrary } = require('./library');
 const crypto = require('node:crypto');
 
 const PORT = Number(process.env.PORT) || 8002;
@@ -114,7 +115,7 @@ async function saveStore() {
 
 // Every joke already shown, plus the ones removed after reports: never picked again.
 function seenIds() {
-  return new Set([...Object.values(store.days).map((j) => j.id), ...(store.banned || [])]);
+  return new Set([...Object.values(store.days).map((j) => j.id), ...(store.banned || []), ...(store.library || []).map((j) => j.id)]);
 }
 
 // ---------- Joke sources ----------
@@ -558,45 +559,49 @@ function handleSeo(req, res, pathname, searchParams) {
     send(res, 200, seo.sitemap(), { 'Content-Type': 'application/xml; charset=utf-8', 'Cache-Control': 'public, max-age=3600' });
     return true;
   }
-  let m = pathname.match(/^\/og\/(\d{4}-\d{2}-\d{2})\.png$/);
+  let m = pathname.match(/^\/og\/(\d{4}-\d{2}-\d{2}|n\d+)\.png$/);
   if (m) {
     const png = seo.ogImage(m[1]);
     if (!png) { send(res, 404, 'Not found', { 'Content-Type': MIME['.txt'] }); return true; }
-    const past = m[1] < jokePeriod().key;
+    const past = m[1].startsWith('n') || m[1] < jokePeriod().key;
     send(res, 200, req.method === 'HEAD' ? undefined : png, {
       'Content-Type': MIME['.png'],
       'Cache-Control': past ? 'public, max-age=86400' : 'public, max-age=300',
     });
     return true;
   }
-  if (pathname === '/blagues' || pathname === '/blagues/') {
-    sendHtml(res, 200, seo.indexPage(seo.archive()), 'public, max-age=300, s-maxage=3600');
+  const LIST_CACHE = 'public, max-age=300, s-maxage=3600';
+  const page = (html) => (html ? sendHtml(res, 200, html, LIST_CACHE) : notFoundPage(res));
+  if (pathname === '/blagues' || pathname === '/blagues/') { page(seo.indexPage(1)); return true; }
+  if ((m = pathname.match(/^\/blagues\/page\/(\d+)$/))) {
+    // Page 1 is /blagues itself: one URL per page.
+    if (Number(m[1]) === 1) send(res, 301, undefined, { Location: '/blagues', 'Cache-Control': ARCHIVE_CACHE });
+    else page(seo.indexPage(Number(m[1])));
     return true;
   }
-  m = pathname.match(/^\/blagues\/(\d{4}-\d{2})$/);
-  if (m) {
-    const html = seo.monthPage(m[1], seo.archive());
-    if (html) sendHtml(res, 200, html, 'public, max-age=300, s-maxage=3600');
-    else notFoundPage(res);
+  if (pathname === '/blagues/meilleures') { page(seo.bestPage()); return true; }
+  if ((m = pathname.match(/^\/blagues\/theme\/([a-z-]+)(?:\/(\d+))?$/))) {
+    if (m[2] === '1') send(res, 301, undefined, { Location: `/blagues/theme/${m[1]}`, 'Cache-Control': ARCHIVE_CACHE });
+    else page(seo.themePage(m[1], m[2] ? Number(m[2]) : 1));
     return true;
   }
-  m = pathname.match(/^\/blague\/(\d{4}-\d{2}-\d{2})(?:-(.*))?$/);
+  if ((m = pathname.match(/^\/blagues\/(\d{4}-\d{2})$/))) { page(seo.monthPage(m[1])); return true; }
+  m = pathname.match(/^\/blague\/(\d{4}-\d{2}-\d{2}|n\d+)(?:-(.*))?$/);
   if (m) {
-    const [, day, slug = ''] = m;
+    const [, key, slug = ''] = m;
     const query = searchParams.toString() ? `?${searchParams}` : '';
     // Today's joke is the home page (no spoiler, no duplicate); the link keeps working tomorrow.
-    if (day === jokePeriod().key) {
+    if (key === jokePeriod().key) {
       send(res, 302, undefined, { Location: `/${query}`, 'Cache-Control': 'no-store' });
       return true;
     }
-    const list = seo.archive();
-    const entry = list.find((e) => e.day === day);
+    const entry = seo.load().byKey.get(key);
     if (!entry) { notFoundPage(res); return true; }
     if (slug !== entry.slug) { // wrong or missing slug: one canonical URL per joke
-      send(res, 301, undefined, { Location: `${seo.pathOf(entry)}${query}`, 'Cache-Control': ARCHIVE_CACHE });
+      send(res, 301, undefined, { Location: `${entry.path}${query}`, 'Cache-Control': ARCHIVE_CACHE });
       return true;
     }
-    sendHtml(res, 200, seo.jokePage(entry, list), ARCHIVE_CACHE);
+    sendHtml(res, 200, seo.jokePage(entry), ARCHIVE_CACHE);
     return true;
   }
   return false;
@@ -683,6 +688,13 @@ const server = http.createServer(async (req, res) => {
 config.load(DATA_DIR);
 loadStore();
 const seo = createSeo({ getStore: () => store, currentKey: () => jokePeriod().key });
+const library = createLibrary({
+  getStore: () => store,
+  save: () => saveStore().catch((err) => console.error('[store] save failed:', err.message)),
+  sources: SOURCES,
+  acceptable,
+  seenIds,
+});
 const notifier = createNotifier({
   dataDir: DATA_DIR,
   getCurrentJoke: () => getTodayJoke().then(({ dayKey, joke }) => ({ key: dayKey, joke })),
@@ -698,6 +710,7 @@ config.onChange((keys) => {
 // First start: nothing to catch up on. After downtime across a change: send the missed one.
 if (!store.notified) store.notified = jokePeriod().key;
 scheduleRefresh();
+library.start();
 notifyNewJoke().catch((err) => console.error(err));
 server.listen(PORT, () => console.log(`Dad Jokes listening on :${PORT}`));
 notifier.diagnose().then((lines) => console.log(['[config] Notifications :', ...lines].join('\n')));

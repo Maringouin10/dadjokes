@@ -22,6 +22,8 @@ const SETTINGS = [
   { group: 'Blagues', key: 'GROQ_MODEL', label: 'Modèle Groq', type: 'text', def: 'llama-3.3-70b-versatile', help: 'Voir console.groq.com/docs/models' },
   { group: 'Blagues', key: 'TIME_ZONE', label: 'Fuseau horaire', type: 'text', def: 'America/New_York', validate: validTimeZone },
   { group: 'Blagues', key: 'CHANGE_HOUR', label: 'Heure du changement de blague (0-23)', type: 'number', def: 12, min: 0, max: 23 },
+  { group: 'Blagues', key: 'LIBRARY_PER_RUN', label: 'Bibliothèque : blagues ajoutées toutes les 30 min (0 = arrêt)', type: 'number', def: 8, min: 0, max: 30, help: 'Blagues humaines des mêmes API, publiées en pages (jamais comme blague du jour). Demande la clé Groq : chacune est vérifiée.' },
+  { group: 'Blagues', key: 'LIBRARY_MAX', label: 'Bibliothèque : nombre maximum de blagues', type: 'number', def: 3000, min: 0, max: 20000 },
   { group: 'Blagues', key: 'HISTORY_DAYS', label: 'Jours d’historique', type: 'number', def: 7, min: 1, max: 60 },
   { group: 'Blagues', key: 'SCHEDULE_TEXT', label: 'Texte de l’horaire', type: 'text', def: 'chaque jour à midi (heure de New York)', help: 'Affiché « Nouvelle blague <texte> » sur le site et dans les e-mails.' },
 
