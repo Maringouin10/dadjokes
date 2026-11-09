@@ -359,6 +359,7 @@ a.button { display: inline-flex; align-items: center; justify-content: center; t
   background: transparent;
   color: var(--accent-text);
   cursor: pointer;
+  text-decoration: none;
   -webkit-tap-highlight-color: transparent;
 }
 .icon-button:hover { background: var(--fill); }

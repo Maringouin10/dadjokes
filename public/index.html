@@ -22,13 +22,12 @@
     <header class="header">
       <p class="eyebrow" id="date">Aujourd’hui</p>
       <h1 class="title">%SITE_NAME%</h1>
-      <button class="icon-button" id="history-open" type="button" aria-label="Historique des %HISTORY_DAYS% derniers jours"
-              aria-haspopup="dialog">
+      <a class="icon-button" id="history-open" href="/blagues" aria-label="Toutes les blagues passées">
         <svg viewBox="0 0 24 24" width="24" height="24" aria-hidden="true" fill="none" stroke="currentColor"
              stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
           <path d="M3 12a9 9 0 1 0 3-6.7"/><path d="M3 4v4h4"/><path d="M12 7v5l3 2"/>
         </svg>
-      </button>
+      </a>
     </header>
 
     <article class="card" aria-live="polite" aria-busy="true" id="card"%CARD_HIDDEN%>
@@ -64,18 +63,6 @@
     <p id="source">&nbsp;</p>
     <p class="legal-links"><button class="link-button" id="report" type="button" aria-haspopup="dialog" hidden>Signaler</button><span class="sep" id="report-sep" hidden> · </span><a href="/blagues">Toutes les blagues</a> · <a href="/confidentialite">Confidentialité</a> · <a href="/conditions">Conditions</a></p>
   </footer>
-
-  <dialog class="sheet history" id="history-dialog" aria-labelledby="history-title">
-    <div class="history-bar">
-      <h2 class="sheet-title" id="history-title">Les %HISTORY_DAYS% derniers jours</h2>
-      <button class="text-button" id="history-close" type="button">OK</button>
-    </div>
-    <div class="history-body">
-      <ol class="history-list" id="history-list"></ol>
-      <p class="history-empty" id="history-empty" hidden>Pas encore d’anciennes blagues. Reviens demain !</p>
-      <p class="history-more"><a href="/blagues">Voir toutes les blagues passées</a></p>
-    </div>
-  </dialog>
 
   <dialog class="sheet" id="notify-dialog" aria-labelledby="notify-title">
     <div class="sheet-form" id="notify-choice">
