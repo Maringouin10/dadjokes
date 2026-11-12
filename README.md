@@ -113,6 +113,9 @@ unreachable, the joke is kept (word filter only) and a warning is logged.
 Every day at noon (right when the joke changes), the **question** is posted on Instagram (e.g. @blaguedujour.lol):
 a 1080 × 1350 JPEG of the setup (`/ig/<date>.jpg`) and a caption that says the answer is on the site, « lien dans la bio ».
 The answer is never posted. A one-liner joke is posted whole, with « lien dans la bio » for more.
+A **story** (1080 × 1920, `/ig/<date>-story.jpg`) is posted right after, with the site's address drawn as a button
+(`INSTAGRAM_STORY`, `INSTAGRAM_STORY_TEASER`). The API cannot add a clickable link sticker to a story: add one by hand
+in the app if you want it (Story → Ajouter → Lien).
 
 1. The Instagram account must be **professional** (Business or Creator): Instagram app → Settings → Account type.
 2. On [developers.facebook.com](https://developers.facebook.com) → My Apps → Create app → use case

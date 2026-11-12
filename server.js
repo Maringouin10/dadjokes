@@ -563,10 +563,10 @@ function handleSeo(req, res, pathname, searchParams) {
     send(res, 200, seo.sitemap(), { 'Content-Type': 'application/xml; charset=utf-8', 'Cache-Control': 'public, max-age=3600' });
     return true;
   }
-  let m = pathname.match(/^\/ig\/(\d{4}-\d{2}-\d{2})\.jpg$/);
+  let m = pathname.match(/^\/ig\/(\d{4}-\d{2}-\d{2})(-story)?\.jpg$/);
   // Instagram image (question only), fetched by Meta when posting. Only revealed days and today.
   if (m) {
-    const jpg = m[1] <= jokePeriod().key ? instagram.image(m[1], store.days[m[1]]) : null;
+    const jpg = m[1] <= jokePeriod().key ? instagram.image(m[1], store.days[m[1]], Boolean(m[2])) : null;
     if (!jpg) { send(res, 404, 'Not found', { 'Content-Type': MIME['.txt'] }); return true; }
     send(res, 200, req.method === 'HEAD' ? undefined : jpg, { 'Content-Type': MIME['.jpg'], 'Cache-Control': 'public, max-age=300' });
     return true;

@@ -25,7 +25,7 @@ const REFRESH_DAYS = 7;
 
 function createInstagram({ dataDir, getCurrentJoke, periodStart }) {
   const file = path.join(dataDir, 'instagram.json');
-  let state = { posts: {}, token: null };
+  let state = { posts: {}, stories: {}, token: null };
   try {
     state = { ...state, ...JSON.parse(fs.readFileSync(file, 'utf8')) };
   } catch { /* first start */ }
@@ -140,14 +140,18 @@ function createInstagram({ dataDir, getCurrentJoke, periodStart }) {
   }
 
   const images = new Map();
-  // JPEG of a day's joke (question only): /ig/<YYYY-MM-DD>.jpg, fetched by Meta when posting.
-  function image(key, joke) {
+  // JPEG of a day's joke (question only), fetched by Meta when posting:
+  // /ig/<YYYY-MM-DD>.jpg (post, 4:5) and /ig/<YYYY-MM-DD>-story.jpg (story, 9:16).
+  function image(key, joke, story = false) {
     if (!joke || joke.unavailable) return null;
-    const cacheKey = `${key}|${joke.id}|${config.INSTAGRAM_TEASER}`;
+    const cacheKey = `${key}|${joke.id}|${config.INSTAGRAM_TEASER}|${story}|${config.SITE_URL}`;
     if (!images.has(cacheKey)) {
       if (images.size >= 20) images.delete(images.keys().next().value);
       const { punchline } = splitJoke(joke.text);
-      images.set(cacheKey, instagramJpeg(question(joke), punchline ? config.INSTAGRAM_TEASER : 'Une nouvelle blague plate chaque jour'));
+      const teaser = punchline ? (story ? config.INSTAGRAM_STORY_TEASER : config.INSTAGRAM_TEASER) : 'Une nouvelle blague plate chaque jour';
+      // The story shows the full address: a link sticker cannot be added through the API.
+      const site = config.SITE_URL.replace(/^https?:\/\//, '');
+      images.set(cacheKey, instagramJpeg(question(joke), teaser, story ? `${site}  →` : site, story));
     }
     return images.get(cacheKey);
   }
@@ -164,22 +168,44 @@ function createInstagram({ dataDir, getCurrentJoke, periodStart }) {
     throw new Error('le conteneur média n’est pas prêt après 2 minutes');
   }
 
-  async function publish(key, joke) {
+  const storyEnabled = () => config.INSTAGRAM_STORY === 'OUI';
+  const done = (key) => Boolean(state.posts[key] && (!storyEnabled() || state.stories[key]));
+
+  async function publishOne(id, params) {
+    const container = await api('POST', `${id}/media`, params);
+    await waitForContainer(container.id);
+    return api('POST', `${id}/media_publish`, { creation_id: container.id });
+  }
+
+  // The post, then the story; each is recorded at once, so a retry only redoes what is missing.
+  // force: post again even if already done today (admin button).
+  async function publish(key, joke, force = false) {
     if (!config.PUBLIC_URL.startsWith('https://')) throw new Error('PUBLIC_URL doit être en https (Meta télécharge l’image depuis le site)');
     const id = await userId();
-    const imageUrl = `${config.PUBLIC_URL}/ig/${key}.jpg?id=${encodeURIComponent(joke.id)}`;
-    const container = await api('POST', `${id}/media`, { image_url: imageUrl, caption: caption(joke) });
-    await waitForContainer(container.id);
-    const media = await api('POST', `${id}/media_publish`, { creation_id: container.id });
-    let permalink = null;
-    try { ({ permalink = null } = await api('GET', media.id, { fields: 'permalink' })); } catch { /* optional */ }
-    state.posts[key] = { mediaId: media.id, jokeId: joke.id, permalink, at: new Date().toISOString() };
-    // Keep the last 60 posts only.
-    for (const old of Object.keys(state.posts).sort().slice(0, -60)) delete state.posts[old];
+    const base = `${config.PUBLIC_URL}/ig/${key}`;
+    const v = `?id=${encodeURIComponent(joke.id)}`;
+    const result = {};
+    if (force || !state.posts[key]) {
+      const media = await publishOne(id, { image_url: `${base}.jpg${v}`, caption: caption(joke) });
+      let permalink = null;
+      try { ({ permalink = null } = await api('GET', media.id, { fields: 'permalink' })); } catch { /* optional */ }
+      state.posts[key] = { mediaId: media.id, jokeId: joke.id, permalink, at: new Date().toISOString() };
+      await save();
+      console.log(`[instagram] ${key} publication : ${permalink || media.id}`);
+    }
+    result.post = state.posts[key];
+    if (storyEnabled() && (force || !state.stories[key])) {
+      const media = await publishOne(id, { image_url: `${base}-story.jpg${v}`, media_type: 'STORIES' });
+      state.stories[key] = { mediaId: media.id, jokeId: joke.id, at: new Date().toISOString() };
+      await save();
+      console.log(`[instagram] ${key} story : ${media.id}`);
+    }
+    result.story = state.stories[key] || null;
+    // Keep the last 60 days only.
+    for (const list of [state.posts, state.stories]) for (const old of Object.keys(list).sort().slice(0, -60)) delete list[old];
     state.lastError = null;
     await save();
-    console.log(`[instagram] ${key} publiée : ${permalink || media.id}`);
-    return state.posts[key];
+    return { ...result.post, story: result.story };
   }
 
   let running = null;
@@ -191,13 +217,13 @@ function createInstagram({ dataDir, getCurrentJoke, periodStart }) {
     if (running) return running;
     running = (async () => {
       const { key, joke } = await getCurrentJoke();
-      if (!force && state.posts[key]) return { skipped: 'déjà publiée' };
+      if (!force && done(key)) return { skipped: 'déjà publiée' };
       if (!joke || joke.unavailable) return { skipped: 'blague non disponible' };
       if (!force && Date.now() - periodStart().getTime() > CATCH_UP_HOURS * 3600e3) return { skipped: 'trop tard pour aujourd’hui' };
       // A local fallback joke may still be replaced by an API one: wait a little first.
       if (!force && joke.fallback && attempt < 2) throw Object.assign(new Error('blague de secours, on attend les API'), { retry: true });
       await refreshToken();
-      return publish(key, joke);
+      return publish(key, joke, force);
     })();
     try {
       return await running;
@@ -237,6 +263,8 @@ function createInstagram({ dataDir, getCurrentJoke, periodStart }) {
     }
     const last = Object.keys(state.posts).sort().pop();
     if (last) lines.push(`  ✅ Instagram : dernière publication le ${last}${state.posts[last].permalink ? ` (${state.posts[last].permalink})` : ''}`);
+    const lastStory = Object.keys(state.stories).sort().pop();
+    if (storyEnabled()) lines.push(lastStory ? `  ✅ Instagram : dernière story le ${lastStory}` : '  ✅ Instagram : une story est aussi publiée chaque jour');
     if (state.lastError) lines.push(`  ⚠️  Instagram : dernier échec le ${state.lastError.at.slice(0, 16).replace('T', ' ')} : ${state.lastError.message}`);
     return lines;
   }
