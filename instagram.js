@@ -136,7 +136,7 @@ function createInstagram({ dataDir, getCurrentJoke, periodStart }) {
     let text = config.INSTAGRAM_CAPTION.replace(/\\n/g, '\n');
     // A one-liner has no answer to hide: the whole joke is the « question ».
     if (!punchline) text = text.replace(/^.*(r[ée]ponse|bio).*$/im, '👉 Une nouvelle blague plate chaque jour à midi : lien dans la bio');
-    return text.replaceAll('{question}', question(joke)).slice(0, 2200);
+    return text.replaceAll('{question}', question(joke)).replaceAll('{lien}', `${config.SITE_URL}/`).slice(0, 2200);
   }
 
   const images = new Map();

@@ -133,7 +133,7 @@ The answer is never posted. A one-liner joke is posted whole, with « lien dans 
   6 h past noon. /admin → Réglages shows the account, the last post and the last error, and has a
   « Publier la blague du jour sur Instagram maintenant » button. Instagram allows 100 API posts per 24 h.
 - A joke removed by reports after it was posted stays on Instagram: delete the post by hand in the app.
-- Caption: `INSTAGRAM_CAPTION` (`{question}`, `\n` for a new line). Text on the image: `INSTAGRAM_TEASER`.
+- Caption: `INSTAGRAM_CAPTION` (`{question}`, `{lien}` = the site's address, `\n` for a new line). Text on the image: `INSTAGRAM_TEASER`.
 
 ### Anti-robot, reports and Québec privacy law (Loi 25)
 
