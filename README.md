@@ -116,18 +116,19 @@ The answer is never posted. A one-liner joke is posted whole, with « lien dans 
 
 1. The Instagram account must be **professional** (Business or Creator): Instagram app → Settings → Account type.
 2. On [developers.facebook.com](https://developers.facebook.com) → My Apps → Create app → use case
-   « Manage messaging & content on Instagram » (type Business).
-3. In the app: Instagram → **API setup with Instagram login** → add the account (it must accept the tester invite in
-   Instagram → Settings → Website permissions → Apps and websites) → **Generate token**. Permissions needed:
-   `instagram_business_basic` and `instagram_business_content_publish`.
-4. Paste the token in `INSTAGRAM_ACCESS_TOKEN` (`.env` or /admin → Réglages). That is all: the account id is found by
-   itself and the token (valid 60 days) is renewed every week (kept in `/data/instagram.json`).
+   « Manage messaging & content on Instagram ».
+3. In the app: Use cases → Instagram API → Customize → **API setup with Unified login** (newer apps; older apps have
+   « API setup with Instagram login ») → **Create new configuration**, pick the Instagram account and keep
+   `instagram_basic` + `instagram_content_publish` → then generate the access token (log in with the Instagram account).
+4. Paste the token in `INSTAGRAM_ACCESS_TOKEN` (`.env` or /admin → Réglages). The account id is found by itself
+   (`/me/assigned_instagram_accounts`). A Unified-login token (system user, `EAA…`) never expires; an Instagram-login
+   token (`IG…`, 60 days) is renewed every week (kept in `/data/instagram.json`).
 5. Put the site's address (`https://blaguedujour.lol`) as the link in the Instagram bio.
 
 - Meta downloads the image from the site: `PUBLIC_URL` must be **https** and reachable from the Internet. With Cloudflare,
   do not block `facebookexternalhit` (Bot Fight Mode / WAF) on `/ig/*`.
 - The app can stay in development mode: only its own account (a tester) posts. No App Review is needed for that.
-- A Facebook-Login Page token (`EAA…`, via graph.facebook.com) also works: then set `INSTAGRAM_USER_ID`.
+- A Facebook-Login Page token also works (the account linked to the Page is used). With several accounts, set `INSTAGRAM_USER_ID`.
 - If a post fails it is retried (5, 15, 30, 60, 120 min). After downtime, a missed post is still made if it is less than
   6 h past noon. /admin → Réglages shows the account, the last post and the last error, and has a
   « Publier la blague du jour sur Instagram maintenant » button. Instagram allows 100 API posts per 24 h.

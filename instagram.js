@@ -4,10 +4,12 @@
 // At each joke change (noon), the question is posted as an image + caption; the answer is never
 // posted: the caption says it is on the site, through the link in the bio.
 //
-// Works with both kinds of Meta tokens:
-//  - « Instagram API with Instagram Login » (token starting with IG…): graph.instagram.com,
+// Works with every kind of Meta token:
+//  - « API setup with Unified login » (newer apps; system-user token EAA…, never expires):
+//    graph.facebook.com, the account id is found with /me/assigned_instagram_accounts.
+//  - « API setup with Instagram login » (token starting with IG…): graph.instagram.com,
 //    the account id is found by itself, the token (60 days) is refreshed here every week.
-//  - « Instagram API with Facebook Login » (Page token, EAA…): graph.facebook.com, INSTAGRAM_USER_ID needed.
+//  - « API setup with Facebook login » (Page token, EAA…): graph.facebook.com, found through the Page.
 
 const fs = require('node:fs');
 const fsp = require('node:fs/promises');
@@ -68,11 +70,32 @@ function createInstagram({ dataDir, getCurrentJoke, periodStart }) {
     return data;
   }
 
+  let foundId = null; // { token, id }
   async function userId() {
     if (config.INSTAGRAM_USER_ID) return config.INSTAGRAM_USER_ID;
-    if (host() !== 'graph.instagram.com') throw new Error('INSTAGRAM_USER_ID manquant (obligatoire avec un jeton de Page Facebook)');
-    const me = await api('GET', 'me', { fields: 'user_id,username' });
-    return me.user_id || me.id;
+    if (foundId && foundId.token === token()) return foundId.id;
+    let id = null;
+    if (host() === 'graph.instagram.com') {
+      const me = await api('GET', 'me', { fields: 'user_id,username' });
+      id = me.user_id || me.id;
+    } else {
+      // Unified login (system user): the Instagram accounts assigned to it.
+      try {
+        const { data = [] } = await api('GET', 'me/assigned_instagram_accounts', { fields: 'id,username' });
+        if (data.length > 1) console.warn(`[instagram] plusieurs comptes (${data.map((a) => `@${a.username}`).join(', ')}) : le premier est utilisé, sinon mets INSTAGRAM_USER_ID`);
+        id = data[0]?.id || null;
+      } catch { /* not a system-user token */ }
+      // Facebook login (Page token): the Instagram account linked to the Page.
+      if (!id) {
+        try {
+          const { data = [] } = await api('GET', 'me/accounts', { fields: 'instagram_business_account' });
+          id = data.find((p) => p.instagram_business_account)?.instagram_business_account.id || null;
+        } catch { /* no Page */ }
+      }
+      if (!id) throw new Error('aucun compte Instagram lié à ce jeton : vérifie que le compte est choisi dans la configuration Meta, ou mets INSTAGRAM_USER_ID');
+    }
+    foundId = { token: token(), id };
+    return id;
   }
 
   // Instagram Login tokens last 60 days and can be extended once they are 24 h old.
