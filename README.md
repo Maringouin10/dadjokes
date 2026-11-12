@@ -108,6 +108,32 @@ unreachable, the joke is kept (word filter only) and a warning is logged.
 - After the punchline, a dismissible pop-up asks how funny the joke is (1–10), once per device and joke (Turnstile after the tap).
   Averages are shown in `/admin`.
 
+### Instagram (Meta for Developers)
+
+Every day at noon (right when the joke changes), the **question** is posted on Instagram (e.g. @blaguedujour.lol):
+a 1080 × 1350 JPEG of the setup (`/ig/<date>.jpg`) and a caption that says the answer is on the site, « lien dans la bio ».
+The answer is never posted. A one-liner joke is posted whole, with « lien dans la bio » for more.
+
+1. The Instagram account must be **professional** (Business or Creator): Instagram app → Settings → Account type.
+2. On [developers.facebook.com](https://developers.facebook.com) → My Apps → Create app → use case
+   « Manage messaging & content on Instagram » (type Business).
+3. In the app: Instagram → **API setup with Instagram login** → add the account (it must accept the tester invite in
+   Instagram → Settings → Website permissions → Apps and websites) → **Generate token**. Permissions needed:
+   `instagram_business_basic` and `instagram_business_content_publish`.
+4. Paste the token in `INSTAGRAM_ACCESS_TOKEN` (`.env` or /admin → Réglages). That is all: the account id is found by
+   itself and the token (valid 60 days) is renewed every week (kept in `/data/instagram.json`).
+5. Put the site's address (`https://blaguedujour.lol`) as the link in the Instagram bio.
+
+- Meta downloads the image from the site: `PUBLIC_URL` must be **https** and reachable from the Internet. With Cloudflare,
+  do not block `facebookexternalhit` (Bot Fight Mode / WAF) on `/ig/*`.
+- The app can stay in development mode: only its own account (a tester) posts. No App Review is needed for that.
+- A Facebook-Login Page token (`EAA…`, via graph.facebook.com) also works: then set `INSTAGRAM_USER_ID`.
+- If a post fails it is retried (5, 15, 30, 60, 120 min). After downtime, a missed post is still made if it is less than
+  6 h past noon. /admin → Réglages shows the account, the last post and the last error, and has a
+  « Publier la blague du jour sur Instagram maintenant » button. Instagram allows 100 API posts per 24 h.
+- A joke removed by reports after it was posted stays on Instagram: delete the post by hand in the app.
+- Caption: `INSTAGRAM_CAPTION` (`{question}`, `\n` for a new line). Text on the image: `INSTAGRAM_TEASER`.
+
 ### Anti-robot, reports and Québec privacy law (Loi 25)
 
 - **Cloudflare Turnstile** (`TURNSTILE_SITE_KEY`, `TURNSTILE_SECRET_KEY`) protects the e-mail sign-up and

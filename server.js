@@ -15,6 +15,7 @@ const config = require('./config');
 const turnstile = require('./turnstile');
 const moderation = require('./moderation');
 const { createSeo } = require('./seo');
+const { createInstagram } = require('./instagram');
 const crypto = require('node:crypto');
 
 const PORT = Number(process.env.PORT) || 8002;
@@ -46,6 +47,7 @@ const MIME = {
   '.json': 'application/json; charset=utf-8',
   '.svg': 'image/svg+xml',
   '.png': 'image/png',
+  '.jpg': 'image/jpeg',
   '.ico': 'image/x-icon',
   '.txt': 'text/plain; charset=utf-8',
 };
@@ -88,6 +90,7 @@ function jokePeriod(now = new Date()) {
   const [py, pm, pd] = [day.getUTCFullYear(), day.getUTCMonth() + 1, day.getUTCDate()];
   return {
     key: `${py}-${String(pm).padStart(2, '0')}-${String(pd).padStart(2, '0')}`,
+    start: changeTimeOn(py, pm, pd),
     next: changeTimeOn(py, pm, pd + 1),
   };
 }
@@ -240,6 +243,8 @@ async function notifyNewJoke() {
   }
   await saveStore().catch((err) => console.error('[store] save failed:', err.message));
   console.log(`[notify] ${dayKey}`);
+  // Instagram runs on its own: a failure there never blocks the push / e-mails (and the reverse).
+  instagram.postDaily().catch(() => { /* logged and retried by instagram.js */ });
   await notifier.notifyAll(joke, dayKey);
 }
 
@@ -558,7 +563,15 @@ function handleSeo(req, res, pathname, searchParams) {
     send(res, 200, seo.sitemap(), { 'Content-Type': 'application/xml; charset=utf-8', 'Cache-Control': 'public, max-age=3600' });
     return true;
   }
-  let m = pathname.match(/^\/og\/(\d{4}-\d{2}-\d{2})\.png$/);
+  let m = pathname.match(/^\/ig\/(\d{4}-\d{2}-\d{2})\.jpg$/);
+  // Instagram image (question only), fetched by Meta when posting. Only revealed days and today.
+  if (m) {
+    const jpg = m[1] <= jokePeriod().key ? instagram.image(m[1], store.days[m[1]]) : null;
+    if (!jpg) { send(res, 404, 'Not found', { 'Content-Type': MIME['.txt'] }); return true; }
+    send(res, 200, req.method === 'HEAD' ? undefined : jpg, { 'Content-Type': MIME['.jpg'], 'Cache-Control': 'public, max-age=300' });
+    return true;
+  }
+  m = pathname.match(/^\/og\/(\d{4}-\d{2}-\d{2})\.png$/);
   if (m) {
     const png = seo.ogImage(m[1]);
     if (!png) { send(res, 404, 'Not found', { 'Content-Type': MIME['.txt'] }); return true; }
@@ -691,8 +704,19 @@ const notifier = createNotifier({
   dataDir: DATA_DIR,
   getCurrentJoke: () => getTodayJoke().then(({ dayKey, joke }) => ({ key: dayKey, joke })),
 });
+const instagram = createInstagram({
+  dataDir: DATA_DIR,
+  getCurrentJoke: () => getTodayJoke().then(({ dayKey, joke }) => ({ key: dayKey, joke })),
+  periodStart: () => jokePeriod().start,
+});
 const ads = createAds({ dataDir: DATA_DIR });
-const stats = createStats({ dataDir: DATA_DIR, ads, diagnose: () => notifier.diagnose(), getJokes: () => store.days });
+const stats = createStats({
+  dataDir: DATA_DIR,
+  ads,
+  instagram,
+  diagnose: async () => [...await notifier.diagnose(), ...await instagram.diagnose()],
+  getJokes: () => store.days,
+});
 console.log(`[stats] ${stats.diagnose()}`);
 // Settings changed in /admin: the joke change time may have moved.
 config.onChange((keys) => {
@@ -703,8 +727,11 @@ config.onChange((keys) => {
 if (!store.notified) store.notified = jokePeriod().key;
 scheduleRefresh();
 notifyNewJoke().catch((err) => console.error(err));
+// After downtime: today's Instagram post is made if it was missed (within a few hours of noon).
+instagram.postDaily().catch(() => {});
 server.listen(PORT, () => console.log(`Dad Jokes listening on :${PORT}`));
 notifier.diagnose().then((lines) => console.log(['[config] Notifications :', ...lines].join('\n')));
+instagram.diagnose().then((lines) => console.log(['[config] Instagram :', ...lines].join('\n')));
 moderation.diagnose().then((line) => console.log(`[config] Blagues : ${line}`));
 
 for (const signal of ['SIGINT', 'SIGTERM']) {

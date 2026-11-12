@@ -263,4 +263,29 @@ function ogPng(text, teaser = 'Retourne la carte pour la réponse →') {
   return new Resvg(ogSvg(text, teaser), { font: { loadSystemFonts: false } }).render().asPng();
 }
 
-module.exports = { labelPdf, labelPng, posterPdf, ogPng };
+// Instagram post (1080 × 1350, 4:5): the question only, the answer is « dans la bio ».
+// Instagram only takes JPEG, so the pixels are encoded with jpeg-js (pure JS).
+function instagramSvg(text, teaser, footer) {
+  const W = 1080; const H = 1350; const { regular, bold } = FONTS;
+  const pad = 110; const textW = W - 2 * pad;
+  const boxTop = 300; const boxH = 600;
+  const size = fitBlock(bold, text, textW, boxH, 84, 38);
+  const bodyH = blockHeight(bold, text, size, textW);
+  const top = boxTop + (boxH - bodyH) / 2;
+  const teaserSize = fitBlock(bold, teaser, textW, 120, 46, 28);
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}">
+<rect width="${W}" height="${H}" fill="#dbf2fc"/>
+<rect x="60" y="60" width="${W - 120}" height="${H - 120}" rx="48" fill="#fff"/>
+<rect x="60" y="60" width="${W - 120}" height="18" rx="9" fill="#fd6e88"/>
+<g fill="#072d59">${textPaths(regular, config.SITE_NAME.toUpperCase(), 32, pad, 150, textW)}${textPaths(bold, text, size, pad, top, textW)}</g>
+<g fill="#d6405e">${textPaths(bold, teaser, teaserSize, pad, 1000, textW)}</g>
+<g fill="#4a6385">${textPaths(regular, footer, 34, pad, 1170, textW)}</g></svg>`;
+}
+
+function instagramJpeg(text, teaser = 'La réponse ? Le lien est dans la bio 👆', footer = config.SITE_URL.replace(/^https?:\/\//, '')) {
+  const jpeg = require('jpeg-js');
+  const img = new Resvg(instagramSvg(text, teaser.replace(/\p{Extended_Pictographic}\uFE0F?/gu, '').trim(), footer), { font: { loadSystemFonts: false } }).render();
+  return jpeg.encode({ data: img.pixels, width: img.width, height: img.height }, 92).data;
+}
+
+module.exports = { labelPdf, labelPng, posterPdf, ogPng, instagramJpeg };

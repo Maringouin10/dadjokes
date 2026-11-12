@@ -49,6 +49,11 @@ const SETTINGS = [
   { group: 'E-mails (Resend)', key: 'EMAIL_FROM', label: 'Expéditeur', type: 'text', def: '', help: 'Ex. La blague plate du jour <blague@blaguedujour.lol>' },
   { group: 'E-mails (Resend)', key: 'EMAIL_REPLY_TO', label: 'Adresse de réponse', type: 'text', def: 'info@blaguedujour.lol', help: 'Facultatif : une vraie boîte qui reçoit les réponses (aide à ne pas finir en spam).', validate: (v) => !v || /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v) },
 
+  { group: 'Instagram (Meta for Developers)', key: 'INSTAGRAM_ACCESS_TOKEN', label: 'Jeton d’accès Instagram', type: 'secret', def: '', help: 'Jeton longue durée (developers.facebook.com → ton app → Instagram → API setup with Instagram login → Generate token). Vide = pas de publication. Il est renouvelé tout seul.' },
+  { group: 'Instagram (Meta for Developers)', key: 'INSTAGRAM_USER_ID', label: 'Identifiant du compte Instagram', type: 'text', def: '', help: 'Facultatif avec un jeton « Instagram login » (trouvé tout seul). Obligatoire avec un jeton de Page Facebook (graph.facebook.com).', validate: (v) => !v || /^\d{5,30}$/.test(v) || 'que des chiffres' },
+  { group: 'Instagram (Meta for Developers)', key: 'INSTAGRAM_CAPTION', label: 'Légende de la publication', type: 'textarea', def: '{question}\\n\\n🤫 La réponse ? Va sur la bio, il y a le lien 👆 @blaguedujour.lol\\n\\n#blague #blaguedujour #humour #blagueplate #jeudemots', help: '{question} = la question de la blague. Écris \\n pour un retour à la ligne.' },
+  { group: 'Instagram (Meta for Developers)', key: 'INSTAGRAM_TEASER', label: 'Texte sur l’image (à la place de la réponse)', type: 'text', def: 'La réponse ? Le lien est dans la bio', help: 'Sans emoji (la police de l’image n’en a pas).' },
+
   { group: 'Anti-robot (Cloudflare Turnstile)', key: 'TURNSTILE_SITE_KEY', label: 'Clé du site Turnstile', type: 'text', def: '', help: 'dash.cloudflare.com → Turnstile → Ajouter un widget. Protège l’inscription par e-mail et les signalements.' },
   { group: 'Anti-robot (Cloudflare Turnstile)', key: 'TURNSTILE_SECRET_KEY', label: 'Clé secrète Turnstile', type: 'secret', def: '' },
 

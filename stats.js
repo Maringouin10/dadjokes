@@ -92,7 +92,7 @@ function countryName(code) {
   }
 }
 
-function createStats({ dataDir, ads, diagnose: diagnoseNotifications, getJokes = () => ({}) }) {
+function createStats({ dataDir, ads, instagram, diagnose: diagnoseNotifications, getJokes = () => ({}) }) {
   const file = path.join(dataDir, 'stats.json');
   let data = { salt: crypto.randomBytes(16).toString('hex'), days: {}, hashes: {}, installs: {}, campaigns: {} };
   try {
@@ -879,7 +879,7 @@ ${ads ? ads.adminHtml() : '<div class="card"><p class="empty">Module indisponibl
 
   // ---------- Settings ----------
 
-  async function settingsPage({ errors = [], saved = false } = {}) {
+  async function settingsPage({ errors = [], saved = false, notice = '' } = {}) {
     const badge = { admin: 'modifié ici', env: '.env', default: 'défaut' };
     const groups = [...new Set(config.SETTINGS.map((s) => s.group))];
     const anchor = (g) => `g-${g.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/[^a-z0-9]+/g, '-')}`;
@@ -913,8 +913,9 @@ ${ads ? ads.adminHtml() : '<div class="card"><p class="empty">Module indisponibl
 
     return page('Réglages', 'settings', `${head('Réglages', 'Une valeur modifiée ici remplace celle du <code>.env</code> et s’applique tout de suite.')}
 ${saved ? '<p class="notice">✅ Réglages enregistrés.</p>' : ''}
+${notice}
 ${errors.length ? `<p class="notice error" role="alert">${errors.map(escapeHtml).join('<br>')}</p>` : ''}
-${status.length ? `<div class="card" style="margin-bottom:16px"><h2>État des e-mails et notifications</h2><ul class="status">${status.map((l) => `<li>${escapeHtml(l.trim())}</li>`).join('')}</ul></div>` : ''}
+${status.length ? `<div class="card" style="margin-bottom:16px"><h2>État des e-mails, notifications et Instagram</h2><ul class="status">${status.map((l) => `<li>${escapeHtml(l.trim())}</li>`).join('')}</ul>${instagram?.enabled() ? `<form method="post" action="/admin/instagram" onsubmit="return confirm('Publier la blague du jour sur Instagram maintenant ?')" style="margin-top:12px"><button type="submit">Publier la blague du jour sur Instagram maintenant</button></form>` : ''}</div>` : ''}
 <div class="settings-wrap"><nav class="toc" aria-label="Sections">${groups.map((g) => `<a href="#${anchor(g)}">${escapeHtml(g)}</a>`).join('')}</nav>
 <form method="post" action="/admin/settings">
 ${groups.map((g) => `<div class="card settings" id="${anchor(g)}"><h2>${escapeHtml(g)}</h2>${config.SETTINGS.filter((s) => s.group === g).map(field).join('')}</div>`).join('')}
@@ -975,6 +976,17 @@ ${groups.map((g) => `<div class="card settings" id="${anchor(g)}"><h2>${escapeHt
     if (pathname === '/admin/settings') {
       if (req.method === 'POST') return saveSettings(req, res);
       return html(res, 200, await settingsPage({ saved: searchParams.has('ok') }));
+    }
+    if (pathname === '/admin/instagram' && req.method === 'POST' && instagram) {
+      let notice;
+      try {
+        const post = await instagram.postDaily({ force: true });
+        notice = post.skipped ? `<p class="notice error" role="alert">Instagram : ${escapeHtml(post.skipped)}</p>`
+          : `<p class="notice">✅ Publiée sur Instagram${post.permalink ? ` : <a href="${escapeHtml(post.permalink)}" target="_blank" rel="noopener">${escapeHtml(post.permalink)}</a>` : ''}</p>`;
+      } catch (err) {
+        notice = `<p class="notice error" role="alert">Instagram : ${escapeHtml(err.message)}</p>`;
+      }
+      return html(res, 200, await settingsPage({ notice }));
     }
     if (pathname === '/admin/ads' && req.method === 'POST' && ads) {
       await ads.handleAdmin(req);
