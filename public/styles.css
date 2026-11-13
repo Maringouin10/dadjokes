@@ -611,6 +611,45 @@ a.button { display: inline-flex; align-items: center; justify-content: center; t
 .rate-range:focus-visible { outline: 2px solid var(--accent); outline-offset: 4px; border-radius: 8px; }
 .rate-range:disabled { opacity: 0.6; cursor: default; }
 .rate-legend { display: flex; justify-content: space-between; font-size: 0.8125rem; color: var(--secondary); }
+
+/* After the vote: your marker + the average marker (positions: --at from 0 to 1, thumb 30 px wide). */
+.rate-track { position: relative; }
+.rate-marks { position: relative; height: 26px; }
+.rate-marks[hidden] { display: none; }
+.rate-marks-below { margin-top: -4px; }
+.rate-avg, .rate-tag { position: absolute; transition: left 0.8s cubic-bezier(0.2, 0.8, 0.2, 1); }
+.rate-avg {
+  --at: 0.5;
+  left: calc(15px + (100% - 30px) * var(--at));
+  transform: translateX(-50%);
+}
+.rate-avg {
+  top: 50%;
+  width: 22px;
+  height: 22px;
+  margin-top: -11px;
+  border: 3px solid #fff;
+  border-radius: 50%;
+  background: var(--label);
+  box-shadow: 0 2px 8px rgba(7, 45, 89, 0.35);
+  pointer-events: none;
+}
+.rate-avg[hidden], .rate-tag[hidden] { display: none; }
+.rate-tag {
+  bottom: 0;
+  left: 0;
+  padding: 3px 8px;
+  border-radius: 980px;
+  font-size: 0.75rem;
+  font-weight: 700;
+  white-space: nowrap;
+}
+.rate-tag-avg { background: var(--label); color: var(--card); }
+.rate-marks-below .rate-tag { top: 0; bottom: auto; }
+.rate-tag-you { background: var(--accent); color: var(--on-accent); }
+.rate.voted .rate-range:disabled { opacity: 1; }
+.rate.voted .rate-range::-webkit-slider-thumb { cursor: default; }
+@media (prefers-reduced-motion: reduce) { .rate-avg, .rate-tag { transition: none; } }
 .rate-send { min-height: 44px; margin-top: 4px; }
 .rate-send:disabled { opacity: 0.45; cursor: default; }
 .rate-ad { display: flex; flex-direction: column; align-items: stretch; gap: 8px; padding-right: 8px; text-align: center; }

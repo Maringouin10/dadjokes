@@ -639,6 +639,11 @@
       if (document.querySelector('dialog[open]')) return askRatingSoon(3000); // a sheet is open: wait
       install.hidden = true; // one pop-up at a time
       rateScale.hidden = false;
+      rate.classList.remove('voted');
+      $('rate-marks').hidden = true;
+      $('rate-marks-you').hidden = true;
+      $('rate-avg').hidden = true;
+      rateSend.hidden = false;
       rateAd.hidden = true;
       $('rate-thanks').hidden = true;
       rateRange.value = 5;
@@ -678,7 +683,7 @@
       const { average, count } = await postJson('/api/rate', { id, score, device: deviceId(), turnstile: token });
       storageSet('rated', id);
       rateCaptcha?.remove();
-      rateScale.hidden = true;
+      showResults(score, average);
       show(`Merci ! Moyenne : ${average.toLocaleString('fr-FR', { maximumFractionDigits: 1 })}/10 (${count} vote${count > 1 ? 's' : ''})`);
       // Mini ad for the Instagram account; without one, the pop-up closes by itself.
       if (config && config.instagramUrl) {
@@ -693,6 +698,40 @@
       show(`${err.message} Touche « Voter » pour réessayer.`);
       lockSlider(false);
     }
+  }
+
+  // Like the Instagram slider: after the vote, your marker stays and the average (your vote included)
+  // slides from it to its place.
+  const at = (n) => (n - 1) / 9;
+  // A tag centered on a marker of the slider, kept inside the pop-up at both ends.
+  function placeTag(el, value) {
+    const width = rateRange.offsetWidth;
+    const x = 15 + (width - 30) * at(value); // the thumb is 30 px wide
+    el.style.left = `${Math.min(width - el.offsetWidth, Math.max(0, x - el.offsetWidth / 2))}px`;
+  }
+  function showResults(score, average) {
+    rate.classList.add('voted');
+    rateRange.disabled = true;
+    rateSend.hidden = true;
+    const avg = $('rate-avg');
+    const avgText = average.toLocaleString('fr-FR', { maximumFractionDigits: 1 });
+    const tagAvg = $('rate-tag-avg');
+    const tagYou = $('rate-tag-you');
+    $('rate-face').textContent = FACES[Math.min(9, Math.max(0, Math.round(average) - 1))];
+    tagAvg.textContent = `Moyenne ${avgText}`;
+    avg.hidden = false;
+    $('rate-marks').hidden = false;
+    $('rate-marks-you').hidden = false;
+    placeTag(tagYou, score);
+    avg.style.transition = 'none';
+    tagAvg.style.transition = 'none';
+    avg.style.setProperty('--at', at(score));
+    placeTag(tagAvg, score);
+    avg.getBoundingClientRect(); // start from your marker…
+    avg.style.transition = '';
+    tagAvg.style.transition = '';
+    avg.style.setProperty('--at', at(average)); // …and slide to the average
+    placeTag(tagAvg, average);
   }
 
   $('rate-ad-link').addEventListener('click', () => setTimeout(() => { rate.hidden = true; }, 300));
