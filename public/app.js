@@ -605,21 +605,31 @@
     }
   });
 
-  // ---------- Rating pop-up (how funny, out of 10) ----------
+  // ---------- Rating pop-up (how funny, slider 1 to 10) ----------
   // Asked once per joke, after the punchline. ✕ hides it until the next joke.
+  // Left = not funny, right = funny. After the vote: a small « follow us on Instagram » ad.
 
   const rate = $('rate');
   const rateScale = $('rate-scale');
+  const rateRange = $('rate-range');
+  const rateSend = $('rate-send');
+  const rateAd = $('rate-ad');
+  const FACES = ['😐', '😐', '😶', '🙂', '🙂', '😄', '😄', '😆', '🤣', '🤣'];
   let rateTimer = null;
 
-  for (let n = 1; n <= 10; n++) {
-    const b = document.createElement('button');
-    b.type = 'button';
-    b.textContent = String(n);
-    b.setAttribute('aria-label', `${n} sur 10`);
-    b.addEventListener('click', () => sendRating(n, b));
-    rateScale.append(b);
+  function showSlider() {
+    const n = Number(rateRange.value);
+    $('rate-face').textContent = FACES[n - 1];
+    rateRange.style.setProperty('--pos', `${((n - 1) / 9) * 100}%`);
+    rateRange.setAttribute('aria-valuetext', `${n} sur 10`);
   }
+  // The vote button only unlocks once the slider has been moved (no accidental 5/10).
+  rateRange.addEventListener('input', () => {
+    showSlider();
+    rateSend.disabled = false;
+    rateSend.textContent = `Voter ${rateRange.value}/10`;
+  });
+  rateSend.addEventListener('click', () => sendRating(Number(rateRange.value)));
 
   function askRatingSoon(delay) {
     clearTimeout(rateTimer);
@@ -629,20 +639,25 @@
       if (document.querySelector('dialog[open]')) return askRatingSoon(3000); // a sheet is open: wait
       install.hidden = true; // one pop-up at a time
       rateScale.hidden = false;
+      rateAd.hidden = true;
       $('rate-thanks').hidden = true;
-      rateScale.querySelectorAll('button').forEach((b) => { b.disabled = false; b.removeAttribute('aria-pressed'); });
+      rateRange.value = 5;
+      rateRange.disabled = false;
+      rateSend.disabled = true;
+      rateSend.textContent = 'Glisse, puis vote';
+      showSlider();
       $('rate-captcha').replaceChildren();
       rate.hidden = false;
     }, delay);
   }
 
-  // The anti-robot check appears only after a number is tapped, then the vote goes as soon as it passes.
+  // The anti-robot check appears only after « Voter » is tapped, then the vote goes as soon as it passes.
   let rateCaptcha = null;
-  async function sendRating(score, button) {
+  const lockSlider = (locked) => { rateRange.disabled = locked; rateSend.disabled = locked; };
+  async function sendRating(score) {
     const id = current && current.id;
     if (!id) return;
-    rateScale.querySelectorAll('button').forEach((b) => { b.disabled = true; b.removeAttribute('aria-pressed'); });
-    button.setAttribute('aria-pressed', 'true');
+    lockSlider(true);
     const thanks = $('rate-thanks');
     const show = (text) => { thanks.textContent = text; thanks.hidden = false; };
     let token;
@@ -654,8 +669,8 @@
         setTimeout(() => resolve(null), 90 * 1000);
       });
       if (!token) {
-        show('Vérification non terminée. Touche une note pour réessayer.');
-        rateScale.querySelectorAll('button').forEach((b) => { b.disabled = false; });
+        show('Vérification non terminée. Touche « Voter » pour réessayer.');
+        lockSlider(false);
         return;
       }
     }
@@ -665,13 +680,22 @@
       rateCaptcha?.remove();
       rateScale.hidden = true;
       show(`Merci ! Moyenne : ${average.toLocaleString('fr-FR', { maximumFractionDigits: 1 })}/10 (${count} vote${count > 1 ? 's' : ''})`);
-      setTimeout(() => { rate.hidden = true; }, 2500);
+      // Mini ad for the Instagram account; without one, the pop-up closes by itself.
+      if (config && config.instagramUrl) {
+        $('rate-ad-link').href = config.instagramUrl;
+        if (config.instagramName) $('rate-ad-link').textContent = `Suivre @${config.instagramName}`;
+        rateAd.hidden = false;
+      } else {
+        setTimeout(() => { rate.hidden = true; }, 2500);
+      }
     } catch (err) {
       rateCaptcha?.reset(); // a token works only once
-      show(`${err.message} Touche une note pour réessayer.`);
-      rateScale.querySelectorAll('button').forEach((b) => { b.disabled = false; });
+      show(`${err.message} Touche « Voter » pour réessayer.`);
+      lockSlider(false);
     }
   }
+
+  $('rate-ad-link').addEventListener('click', () => setTimeout(() => { rate.hidden = true; }, 300));
 
   $('rate-close').addEventListener('click', () => {
     rate.hidden = true;

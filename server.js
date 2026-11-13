@@ -462,6 +462,9 @@ async function handleSubscriptions(req, res, pathname, searchParams) {
       pushPublicKey: notifier.publicKey,
       email: notifier.emailEnabled,
       turnstileSiteKey: turnstile.enabled() ? config.TURNSTILE_SITE_KEY : null,
+      // Mini « follow us on Instagram » ad shown after a vote (empty = no ad).
+      instagramUrl: config.INSTAGRAM_PROFILE_URL || null,
+      instagramName: (config.INSTAGRAM_PROFILE_URL.match(/instagram\.com\/([\w.]+)/) || [])[1] || null,
     });
   }
 

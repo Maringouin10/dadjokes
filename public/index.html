@@ -121,10 +121,19 @@
       <p class="rate-title" id="rate-title">C’est drôle à quel point ?</p>
       <button class="install-close" id="rate-close" type="button" aria-label="Fermer">✕</button>
     </div>
-    <div class="rate-scale" id="rate-scale" role="group" aria-label="Note sur 10"></div>
-    <div class="rate-legend" aria-hidden="true"><span>😐 Pas drôle</span><span>Très drôle 😂</span></div>
+    <div class="rate-scale" id="rate-scale">
+      <div class="rate-face" id="rate-face" aria-hidden="true">🙂</div>
+      <input class="rate-range" id="rate-range" type="range" min="1" max="10" step="1" value="5"
+        aria-label="Note de 1 (pas drôle) à 10 (très drôle)" aria-valuetext="5 sur 10">
+      <div class="rate-legend" aria-hidden="true"><span>😐 Pas drôle</span><span>Drôle 😂</span></div>
+      <button class="button rate-send" id="rate-send" type="button" disabled>Glisse, puis vote</button>
+    </div>
     <div class="captcha rate-captcha" id="rate-captcha"></div>
     <p class="rate-thanks" id="rate-thanks" role="status" hidden></p>
+    <div class="rate-ad" id="rate-ad" hidden>
+      <p class="rate-ad-text">📸 Abonne-toi à notre Instagram pour ne rater aucune blague !</p>
+      <a class="button rate-ad-link" id="rate-ad-link" href="#" target="_blank" rel="noopener">Suivre @blaguedujour.lol</a>
+    </div>
   </div>
 
   <div class="install" id="install" role="dialog" aria-labelledby="install-title" hidden>

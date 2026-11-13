@@ -105,7 +105,9 @@ unreachable, the joke is kept (word filter only) and a warning is logged.
   its scans are counted apart (per day, uniques). Its page has the QR (PNG/SVG), label (PNG/PDF) and poster.
   A place can have **lots** (one per batch of labels sent): each lot has its own 4-digit code, label count,
   note and stats; the place page adds its lots up, and the general stats count them all as that place.
-- After the punchline, a dismissible pop-up asks how funny the joke is (1–10), once per device and joke (Turnstile after the tap).
+- After the punchline, a dismissible pop-up asks how funny the joke is with a slider (left « pas drôle », right « drôle »,
+  stored as 1–10), once per device and joke (Turnstile after « Voter »). After the vote, a mini ad invites to follow the
+  Instagram account (`INSTAGRAM_PROFILE_URL`, empty = no ad).
   Averages are shown in `/admin`.
 
 ### Instagram (Meta for Developers)
