@@ -16,6 +16,7 @@ const turnstile = require('./turnstile');
 const moderation = require('./moderation');
 const { createSeo } = require('./seo');
 const { createInstagram } = require('./instagram');
+const { createMusic } = require('./music');
 const crypto = require('node:crypto');
 
 const PORT = Number(process.env.PORT) || 8002;
@@ -48,6 +49,7 @@ const MIME = {
   '.svg': 'image/svg+xml',
   '.png': 'image/png',
   '.jpg': 'image/jpeg',
+  '.mp4': 'video/mp4',
   '.ico': 'image/x-icon',
   '.txt': 'text/plain; charset=utf-8',
 };
@@ -569,9 +571,20 @@ function handleSeo(req, res, pathname, searchParams) {
   let m = pathname.match(/^\/ig\/(\d{4}-\d{2}-\d{2})(-story)?\.jpg$/);
   // Instagram image (question only), fetched by Meta when posting. Only revealed days and today.
   if (m) {
-    const jpg = m[1] <= jokePeriod().key ? instagram.image(m[1], store.days[m[1]], Boolean(m[2])) : null;
+    const jpg = m[1] <= jokePeriod().key ? instagram.image(m[1], store.days[m[1]], m[2] ? 'story' : 'post') : null;
     if (!jpg) { send(res, 404, 'Not found', { 'Content-Type': MIME['.txt'] }); return true; }
     send(res, 200, req.method === 'HEAD' ? undefined : jpg, { 'Content-Type': MIME['.jpg'], 'Cache-Control': 'public, max-age=300' });
+    return true;
+  }
+  // Instagram videos (question + music of the day), made when posting, fetched by Meta.
+  m = pathname.match(/^\/ig\/(\d{4}-\d{2}-\d{2})-(reel|story)\.mp4$/);
+  if (m) {
+    const file = music.video(m[1], m[2]);
+    if (!file) { send(res, 404, 'Not found', { 'Content-Type': MIME['.txt'] }); return true; }
+    const { size } = fs.statSync(file);
+    res.writeHead(200, { 'Content-Type': MIME['.mp4'], 'Content-Length': size, 'Cache-Control': 'public, max-age=300' });
+    if (req.method === 'HEAD') res.end();
+    else fs.createReadStream(file).pipe(res);
     return true;
   }
   m = pathname.match(/^\/og\/(\d{4}-\d{2}-\d{2})\.png$/);
@@ -707,8 +720,10 @@ const notifier = createNotifier({
   dataDir: DATA_DIR,
   getCurrentJoke: () => getTodayJoke().then(({ dayKey, joke }) => ({ key: dayKey, joke })),
 });
+const music = createMusic({ dataDir: DATA_DIR });
 const instagram = createInstagram({
   dataDir: DATA_DIR,
+  music,
   getCurrentJoke: () => getTodayJoke().then(({ dayKey, joke }) => ({ key: dayKey, joke })),
   periodStart: () => jokePeriod().start,
 });
@@ -717,6 +732,7 @@ const stats = createStats({
   dataDir: DATA_DIR,
   ads,
   instagram,
+  music,
   diagnose: async () => [...await notifier.diagnose(), ...await instagram.diagnose()],
   getJokes: () => store.days,
 });

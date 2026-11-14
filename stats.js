@@ -92,7 +92,7 @@ function countryName(code) {
   }
 }
 
-function createStats({ dataDir, ads, instagram, diagnose: diagnoseNotifications, getJokes = () => ({}) }) {
+function createStats({ dataDir, ads, instagram, music, diagnose: diagnoseNotifications, getJokes = () => ({}) }) {
   const file = path.join(dataDir, 'stats.json');
   let data = { salt: crypto.randomBytes(16).toString('hex'), days: {}, hashes: {}, installs: {}, campaigns: {} };
   try {
@@ -240,7 +240,7 @@ function createStats({ dataDir, ads, instagram, diagnose: diagnoseNotifications,
 
   const ADMIN_HEADERS = {
     'X-Robots-Tag': 'noindex, nofollow, noarchive',
-    'Content-Security-Policy': "default-src 'none'; style-src 'unsafe-inline'; img-src 'self'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'",
+    'Content-Security-Policy': "default-src 'none'; style-src 'unsafe-inline'; img-src 'self'; media-src 'self'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'",
     'X-Frame-Options': 'DENY',
   };
   const html = (res, status, body, extra = {}) => reply(res, status, body, 'text/html; charset=utf-8', { ...ADMIN_HEADERS, ...extra });
@@ -375,6 +375,7 @@ textarea{resize:vertical}
 .dist{display:flex;align-items:flex-end;gap:3px;height:56px;margin-top:8px}
 .dist i{flex:1;background:var(--accent);opacity:.85;border-radius:3px 3px 0 0;min-height:2px}
 .dist-x{display:flex;gap:3px;font-size:11px;color:var(--faint)}.dist-x span{flex:1;text-align:center}
+.tracks{list-style:none;margin:12px 0;padding:0}.track{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:10px 0;border-top:1px solid var(--line)}.track audio{display:block;margin-top:6px;height:36px;max-width:100%}.upload{display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin-top:12px}
 .notice{padding:12px 16px;border-radius:12px;margin-bottom:16px;font-size:14px;background:color-mix(in srgb,var(--good) 10%,var(--card));border:1px solid color-mix(in srgb,var(--good) 30%,transparent)}
 .notice.error{background:color-mix(in srgb,var(--bad) 8%,var(--card));border-color:color-mix(in srgb,var(--bad) 35%,transparent);color:var(--bad)}
 .status{margin:0;padding:0;list-style:none;font-size:13.5px;display:flex;flex-direction:column;gap:6px}
@@ -916,11 +917,64 @@ ${saved ? '<p class="notice">✅ Réglages enregistrés.</p>' : ''}
 ${notice}
 ${errors.length ? `<p class="notice error" role="alert">${errors.map(escapeHtml).join('<br>')}</p>` : ''}
 ${status.length ? `<div class="card" style="margin-bottom:16px"><h2>État des e-mails, notifications et Instagram</h2><ul class="status">${status.map((l) => `<li>${escapeHtml(l.trim())}</li>`).join('')}</ul>${instagram?.enabled() ? `<form method="post" action="/admin/instagram" onsubmit="return confirm('Publier la blague du jour sur Instagram maintenant ?')" style="margin-top:12px"><button type="submit">Publier la blague du jour sur Instagram maintenant</button></form>` : ''}</div>` : ''}
+${music ? musicCard() : ''}
 <div class="settings-wrap"><nav class="toc" aria-label="Sections">${groups.map((g) => `<a href="#${anchor(g)}">${escapeHtml(g)}</a>`).join('')}</nav>
 <form method="post" action="/admin/settings">
 ${groups.map((g) => `<div class="card settings" id="${anchor(g)}"><h2>${escapeHtml(g)}</h2>${config.SETTINGS.filter((s) => s.group === g).map(field).join('')}</div>`).join('')}
 <div class="savebar"><button type="submit">Enregistrer</button></div>
 </form></div>`);
+  }
+
+  // ---------- Instagram music (MP3 upload) ----------
+
+  function musicCard() {
+    const tracks = music.list();
+    const mb = (n) => `${(n / 1048576).toLocaleString('fr-FR', { maximumFractionDigits: 1 })} Mo`;
+    const rows = tracks.map((t) => `<li class="track"><div><b>${escapeHtml(t.name)}</b> <span class="muted">${mb(t.size)}</span>
+<audio controls preload="none" src="/admin/music/${encodeURIComponent(t.name)}"></audio></div>
+<form method="post" action="/admin/music/delete"><input type="hidden" name="name" value="${escapeHtml(t.name)}"><button type="submit" class="danger sm">Supprimer</button></form></li>`).join('');
+    return `<div class="card" id="musiques" style="margin-bottom:16px"><h2>Musiques des vidéos Instagram</h2>
+<p class="muted">Chaque jour, une de ces musiques est prise au hasard (jamais deux jours de suite la même s’il y en a plusieurs) et ajoutée à la vidéo :
+le post devient un Reel et la story une vidéo (réglage « Vidéo avec musique » plus bas). Sans musique : des photos, comme avant.
+Utilise seulement des musiques libres de droits (bibliothèque audio YouTube, Pixabay Music…), sinon Instagram peut couper le son ou bloquer la vidéo.</p>
+${tracks.length ? `<ul class="tracks">${rows}</ul>` : '<p><b>Aucune musique pour l’instant.</b></p>'}
+<form method="post" action="/admin/music" enctype="multipart/form-data" class="upload">
+<input type="file" name="files" accept=".mp3,audio/mpeg" multiple required>
+<button type="submit">Ajouter les MP3</button></form>
+<p class="muted">MP3 seulement, ${music.MAX_BYTES / 1048576} Mo maximum par fichier. Tu peux en choisir plusieurs à la fois.</p></div>`;
+  }
+
+  async function handleMusic(req, res, pathname) {
+    const notice = (cls, text) => `<p class="notice${cls}" role="${cls ? 'alert' : 'status'}">${escapeHtml(text)}</p>`;
+    if (pathname === '/admin/music' && req.method === 'POST') {
+      let message;
+      try {
+        const files = await music.readUpload(req);
+        if (!files.length) throw new Error('Aucun fichier reçu.');
+        const added = [];
+        const errors = [];
+        for (const f of files) {
+          try { added.push(await music.add(f.name, f.data)); } catch (err) { errors.push(err.message); }
+        }
+        message = (added.length ? notice('', `✅ Ajoutée${added.length > 1 ? 's' : ''} : ${added.join(', ')}`) : '')
+          + (errors.length ? notice(' error', errors.join(' · ')) : '');
+      } catch (err) {
+        message = notice(' error', err.message);
+      }
+      return html(res, 200, await settingsPage({ notice: message }));
+    }
+    if (pathname === '/admin/music/delete' && req.method === 'POST') {
+      const name = new URLSearchParams(await readBody(req)).get('name') || '';
+      await music.remove(name);
+      return reply(res, 303, '', 'text/plain', { ...ADMIN_HEADERS, Location: '/admin/settings#musiques' });
+    }
+    const m = pathname.match(/^\/admin\/music\/([^/]+)$/);
+    if (m && (req.method === 'GET' || req.method === 'HEAD')) {
+      const file = music.file(decodeURIComponent(m[1]));
+      if (!file) return reply(res, 404, 'Not found', 'text/plain; charset=utf-8');
+      return reply(res, 200, req.method === 'HEAD' ? undefined : fs.readFileSync(file), 'audio/mpeg', ADMIN_HEADERS);
+    }
+    return false;
   }
 
   async function saveSettings(req, res) {
@@ -976,6 +1030,10 @@ ${groups.map((g) => `<div class="card settings" id="${anchor(g)}"><h2>${escapeHt
     if (pathname === '/admin/settings') {
       if (req.method === 'POST') return saveSettings(req, res);
       return html(res, 200, await settingsPage({ saved: searchParams.has('ok') }));
+    }
+    if (music && pathname.startsWith('/admin/music')) {
+      const handled = await handleMusic(req, res, pathname);
+      if (handled !== false) return handled;
     }
     if (pathname === '/admin/instagram' && req.method === 'POST' && instagram) {
       let notice;

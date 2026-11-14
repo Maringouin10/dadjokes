@@ -4,10 +4,13 @@ ENV NODE_ENV=production \
     PORT=8002 \
     DATA_DIR=/data
 
+# ffmpeg: Instagram videos (question + music)
+RUN apk add --no-cache ffmpeg
+
 WORKDIR /app
 COPY package.json package-lock.json ./
 RUN npm ci --omit=dev && npm cache clean --force
-COPY server.js config.js notifications.js email-templates.js stats.js ads.js print.js seo.js themes.js turnstile.js moderation.js instagram.js fallback-jokes.json ./
+COPY server.js config.js notifications.js email-templates.js stats.js ads.js print.js seo.js themes.js turnstile.js moderation.js instagram.js music.js fallback-jokes.json ./
 COPY public ./public
 COPY fonts ./fonts
 

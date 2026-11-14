@@ -117,7 +117,13 @@ Every day at noon (right when the joke changes), the **question** is posted on I
 a 1080 × 1350 JPEG of the setup (`/ig/<date>.jpg`) and a caption that says the answer is on the site, « lien dans la bio ».
 The answer is never posted. A one-liner joke is posted whole, with « lien dans la bio » for more.
 A **story** (1080 × 1920, `/ig/<date>-story.jpg`) is posted right after, with the site's address drawn as a button
-(`INSTAGRAM_STORY`, `INSTAGRAM_STORY_TEASER`). The API cannot add a clickable link sticker to a story: add one by hand
+(`INSTAGRAM_STORY`, `INSTAGRAM_STORY_TEASER`). **Music**: in /admin → Réglages → « Musiques des vidéos Instagram », upload MP3s (royalty-free only; 20 MB each, kept in
+`/data/music`). Each day one is picked at random (never the same two days in a row when there are several), and with
+ffmpeg (installed in the Docker image) the question + that music become a 1080 × 1920 video (`INSTAGRAM_VIDEO_SECONDS`, 10 s):
+the post is published as a **Reel** (also shown in the grid) and the story as a video (`INSTAGRAM_VIDEO`: both, Reel only,
+story only, or no video). Without MP3s, or if a video cannot be made, the photos are posted as before. Instagram's own music
+library is not available through the API: the music shows as « Audio original ».
+The API cannot add a clickable link sticker to a story: add one by hand
 in the app if you want it (Story → Ajouter → Lien).
 
 1. The Instagram account must be **professional** (Business or Creator): Instagram app → Settings → Account type.

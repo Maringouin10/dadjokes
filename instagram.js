@@ -23,9 +23,9 @@ const CATCH_UP_HOURS = 6; // after downtime, a missed post is still made within 
 const RETRY_MINUTES = [5, 15, 30, 60, 120];
 const REFRESH_DAYS = 7;
 
-function createInstagram({ dataDir, getCurrentJoke, periodStart }) {
+function createInstagram({ dataDir, getCurrentJoke, periodStart, music }) {
   const file = path.join(dataDir, 'instagram.json');
-  let state = { posts: {}, stories: {}, token: null };
+  let state = { posts: {}, stories: {}, music: {}, token: null };
   try {
     state = { ...state, ...JSON.parse(fs.readFileSync(file, 'utf8')) };
   } catch { /* first start */ }
@@ -142,13 +142,15 @@ function createInstagram({ dataDir, getCurrentJoke, periodStart }) {
   const images = new Map();
   // JPEG of a day's joke (question only), fetched by Meta when posting:
   // /ig/<YYYY-MM-DD>.jpg (post, 4:5) and /ig/<YYYY-MM-DD>-story.jpg (story, 9:16).
-  function image(key, joke, story = false) {
+  // kind 'reel': 9:16 like the story, but « lien dans la bio » (the image of the Reel video).
+  function image(key, joke, kind = 'post') {
     if (!joke || joke.unavailable) return null;
-    const cacheKey = `${key}|${joke.id}|${config.INSTAGRAM_TEASER}|${story}|${config.SITE_URL}`;
+    const story = kind !== 'post';
+    const cacheKey = `${key}|${joke.id}|${config.INSTAGRAM_TEASER}|${config.INSTAGRAM_STORY_TEASER}|${kind}|${config.SITE_URL}`;
     if (!images.has(cacheKey)) {
       if (images.size >= 20) images.delete(images.keys().next().value);
       const { punchline } = splitJoke(joke.text);
-      const teaser = punchline ? (story ? config.INSTAGRAM_STORY_TEASER : config.INSTAGRAM_TEASER) : 'Une nouvelle blague plate chaque jour';
+      const teaser = punchline ? (kind === 'story' ? config.INSTAGRAM_STORY_TEASER : config.INSTAGRAM_TEASER) : 'Une nouvelle blague plate chaque jour';
       // The story shows the full address: a link sticker cannot be added through the API.
       const site = config.SITE_URL.replace(/^https?:\/\//, '');
       images.set(cacheKey, instagramJpeg(question(joke), teaser, story ? `${site}  →` : site, story));
@@ -158,22 +160,36 @@ function createInstagram({ dataDir, getCurrentJoke, periodStart }) {
 
   // ---------- Publishing ----------
 
-  async function waitForContainer(id) {
-    for (let i = 0; i < 30; i++) {
+  async function waitForContainer(id, tries = 30) {
+    for (let i = 0; i < tries; i++) {
       const { status_code: status } = await api('GET', id, { fields: 'status_code' });
       if (status === 'FINISHED') return;
       if (status === 'ERROR' || status === 'EXPIRED') throw new Error(`le conteneur média est en ${status} (image refusée ou injoignable ?)`);
       await new Promise((r) => setTimeout(r, 4000));
     }
-    throw new Error('le conteneur média n’est pas prêt après 2 minutes');
+    throw new Error(`le conteneur média n’est pas prêt après ${Math.round((tries * 4) / 60)} minutes`);
   }
 
   const storyEnabled = () => config.INSTAGRAM_STORY === 'OUI';
+
+  // With uploaded MP3s (and ffmpeg), the post becomes a Reel and/or the story a video, with the
+  // music of the day (picked at random, the same for both).
+  async function videoPlan(key) {
+    const mode = config.INSTAGRAM_VIDEO;
+    if (!music || mode === 'NON' || !music.list().length) return { track: null, reel: false, story: false };
+    if (!(await music.ffmpegAvailable())) {
+      console.warn('[instagram] ffmpeg absent : photos sans musique');
+      return { track: null, reel: false, story: false };
+    }
+    const track = music.pick(key, state.music);
+    await save();
+    return { track, reel: mode === 'LES_DEUX' || mode === 'POST', story: mode === 'LES_DEUX' || mode === 'STORY' };
+  }
   const done = (key) => Boolean(state.posts[key] && (!storyEnabled() || state.stories[key]));
 
   async function publishOne(id, params) {
     const container = await api('POST', `${id}/media`, params);
-    await waitForContainer(container.id);
+    await waitForContainer(container.id, params.video_url ? 90 : 30); // videos take longer to process
     return api('POST', `${id}/media_publish`, { creation_id: container.id });
   }
 
@@ -185,20 +201,37 @@ function createInstagram({ dataDir, getCurrentJoke, periodStart }) {
     const base = `${config.PUBLIC_URL}/ig/${key}`;
     const v = `?id=${encodeURIComponent(joke.id)}`;
     const result = {};
+    const plan = await videoPlan(key);
+    // A video (Reel or story) that cannot be made falls back to the photo: the day is never lost.
+    async function makeVideo(kind) {
+      try {
+        await music.render(key, kind, image(key, joke, kind), plan.track, config.INSTAGRAM_VIDEO_SECONDS);
+        return `${base}-${kind}.mp4${v}`;
+      } catch (err) {
+        console.error(`[instagram] vidéo ${kind} impossible, photo à la place : ${err.message}`);
+        return null;
+      }
+    }
     if (force || !state.posts[key]) {
-      const media = await publishOne(id, { image_url: `${base}.jpg${v}`, caption: caption(joke) });
+      const reel = plan.reel && (await makeVideo('reel'));
+      const media = await publishOne(id, reel
+        ? { media_type: 'REELS', video_url: reel, caption: caption(joke), share_to_feed: 'true' }
+        : { image_url: `${base}.jpg${v}`, caption: caption(joke) });
       let permalink = null;
       try { ({ permalink = null } = await api('GET', media.id, { fields: 'permalink' })); } catch { /* optional */ }
-      state.posts[key] = { mediaId: media.id, jokeId: joke.id, permalink, at: new Date().toISOString() };
+      state.posts[key] = { mediaId: media.id, jokeId: joke.id, permalink, music: reel ? plan.track : null, at: new Date().toISOString() };
       await save();
-      console.log(`[instagram] ${key} publication : ${permalink || media.id}`);
+      console.log(`[instagram] ${key} ${reel ? `reel (${plan.track})` : 'publication'} : ${permalink || media.id}`);
     }
     result.post = state.posts[key];
     if (storyEnabled() && (force || !state.stories[key])) {
-      const media = await publishOne(id, { image_url: `${base}-story.jpg${v}`, media_type: 'STORIES' });
-      state.stories[key] = { mediaId: media.id, jokeId: joke.id, at: new Date().toISOString() };
+      const clip = plan.story && (await makeVideo('story'));
+      const media = await publishOne(id, clip
+        ? { media_type: 'STORIES', video_url: clip }
+        : { image_url: `${base}-story.jpg${v}`, media_type: 'STORIES' });
+      state.stories[key] = { mediaId: media.id, jokeId: joke.id, music: clip ? plan.track : null, at: new Date().toISOString() };
       await save();
-      console.log(`[instagram] ${key} story : ${media.id}`);
+      console.log(`[instagram] ${key} story${clip ? ` vidéo (${plan.track})` : ''} : ${media.id}`);
     }
     result.story = state.stories[key] || null;
     // Keep the last 60 days only.
@@ -265,6 +298,12 @@ function createInstagram({ dataDir, getCurrentJoke, periodStart }) {
     if (last) lines.push(`  ✅ Instagram : dernière publication le ${last}${state.posts[last].permalink ? ` (${state.posts[last].permalink})` : ''}`);
     const lastStory = Object.keys(state.stories).sort().pop();
     if (storyEnabled()) lines.push(lastStory ? `  ✅ Instagram : dernière story le ${lastStory}` : '  ✅ Instagram : une story est aussi publiée chaque jour');
+    if (music) {
+      const tracks = music.list().length;
+      if (!tracks || config.INSTAGRAM_VIDEO === 'NON') lines.push('  ➖ Instagram : pas de musique (photos seulement)');
+      else if (!(await music.ffmpegAvailable())) lines.push(`  ❌ Instagram : ${tracks} musique(s), mais ffmpeg est absent (reconstruis le Docker)`);
+      else lines.push(`  ✅ Instagram : ${tracks} musique(s), une au hasard chaque jour (vidéos de ${config.INSTAGRAM_VIDEO_SECONDS} s)`);
+    }
     if (state.lastError) lines.push(`  ⚠️  Instagram : dernier échec le ${state.lastError.at.slice(0, 16).replace('T', ' ')} : ${state.lastError.message}`);
     return lines;
   }
